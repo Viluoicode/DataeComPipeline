@@ -46,3 +46,6 @@ publish/
 *.pfx
 secrets.json
 appsettings.Local.json
+
+# ====== SSMS scratch files ======
+SQLQuery*.sql
