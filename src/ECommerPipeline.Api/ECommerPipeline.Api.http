@@ -1,0 +1,121 @@
+###############################################################################
+#  ECommerPipeline — full test flow
+#  Yêu cầu: VS Code extension "REST Client" (humao.rest-client)
+#  Click "Send Request" phía trên từng block ###
+#  Chạy theo thứ tự từ trên xuống dưới
+###############################################################################
+
+@host = http://localhost:5193
+
+###############################################################################
+# A. HEALTH CHECKS — kiểm tra app + 2 DB còn sống
+###############################################################################
+
+### A1. Health overall (kỳ vọng: 200 OK, body = "Healthy")
+GET {{host}}/health
+
+###############################################################################
+# B. OLTP — WRITE PATH (đặt đơn hàng nhanh)
+###############################################################################
+
+### B1. Tạo đơn hợp lệ — customer 1, 2 sản phẩm
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "customerId": 1,
+  "items": [
+    { "productId": 1, "quantity": 2 },
+    { "productId": 3, "quantity": 1 }
+  ]
+}
+
+### B2. Tạo đơn hợp lệ — customer 2, 1 sản phẩm
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "customerId": 2,
+  "items": [
+    { "productId": 2, "quantity": 5 }
+  ]
+}
+
+### B3. Tạo đơn hợp lệ — customer 3, 2 sản phẩm
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "customerId": 3,
+  "items": [
+    { "productId": 5, "quantity": 1 },
+    { "productId": 4, "quantity": 2 }
+  ]
+}
+
+###############################################################################
+# C. VALIDATION — FluentValidation phải chặn input xấu (kỳ vọng 400)
+###############################################################################
+
+### C1. CustomerId = 0  →  400 Bad Request
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "customerId": 0,
+  "items": [ { "productId": 1, "quantity": 1 } ]
+}
+
+### C2. Items rỗng  →  400 Bad Request
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "customerId": 1,
+  "items": []
+}
+
+### C3. Quantity <= 0  →  400 Bad Request
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "customerId": 1,
+  "items": [ { "productId": 1, "quantity": 0 } ]
+}
+
+### C4. Product không tồn tại  →  400 (qua Exception Handler)
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "customerId": 1,
+  "items": [ { "productId": 999999, "quantity": 1 } ]
+}
+
+###############################################################################
+# D. ETL — đồng bộ OLTP → OLAP
+###############################################################################
+
+### D1. Trigger ETL ngay (không đợi cron 5 phút)
+POST {{host}}/api/admin/trigger-etl
+
+###############################################################################
+# E. OLAP — READ PATH (báo cáo từ Columnstore)
+###############################################################################
+
+### E1. Doanh thu theo Category (90 ngày qua)
+GET {{host}}/api/reports/sales-by-category?from=2026-02-01&to=2026-05-31
+
+### E2. Doanh thu theo ngày (tháng này)
+GET {{host}}/api/reports/sales-by-day?from=2026-05-01&to=2026-05-31
+
+### E3. Top 10 sản phẩm bán chạy nhất
+GET {{host}}/api/reports/top-products?from=2026-02-01&to=2026-05-31&top=10
+
+###############################################################################
+# F. ADMIN — utility
+###############################################################################
+
+### F1. Reset — xoá toàn bộ orders + fact + watermark (để test lại từ đầu)
+POST {{host}}/api/admin/reset

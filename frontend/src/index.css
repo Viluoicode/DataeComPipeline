@@ -1,0 +1,14 @@
+/* Reset & globals — page-specific styles live in App.css */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Roboto, sans-serif;
+  background: #0f1419;
+  color: #e8e8e8;
+}
+
+button {
+  font-family: inherit;
+}
