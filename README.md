@@ -7,15 +7,17 @@
 
 ## 1. Project làm gì?
 
-Một hệ thống e-commerce backend có **3 thành phần chính**:
+Một hệ thống e-commerce **fullstack** với **4 thành phần chính**:
 
 | Thành phần | Trách nhiệm |
 |---|---|
 | **OLTP DB** (row-store) | Ghi đơn hàng tốc độ cao. Indexes tối ưu cho INSERT/UPDATE. |
 | **OLAP DW** (Columnstore) | Star schema (fact + dimension). Phục vụ báo cáo phức tạp với JOIN/GROUP BY trên hàng triệu row trong <1s. |
-| **ETL Pipeline** (Hangfire) | Mỗi 5 phút: extract dữ liệu mới từ OLTP, transform sang star schema, bulk-load vào OLAP. |
+| **ETL Pipeline** (Hangfire) | Mỗi 5 phút: extract dữ liệu mới từ OLTP, transform sang star schema, bulk-load vào OLAP. Mỗi đêm 2AM tự compress columnstore rowgroups. |
+| **BI Dashboard** (React + Tremor) | SPA với 5 page: Dashboard real-time, Orders list/detail, Create Order form, Excel Import, Stress Test. SignalR push update khi ETL xong. |
 
 Demo nguyên lý: **CQRS thực tế** — đọc và ghi ở 2 nơi khác nhau, đồng bộ qua ETL.
+**Full end-to-end demo không cần SSMS** — tạo customer/product/order, import Excel, xem analytics đều qua UI.
 
 ---
 
@@ -23,7 +25,13 @@ Demo nguyên lý: **CQRS thực tế** — đọc và ghi ở 2 nơi khác nhau,
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  ECommerPipeline.Api   (Minimal API + Hangfire UI)      │
+│  frontend/  (React + TypeScript + Tremor SPA)           │
+│  Dashboard / Orders / CreateOrder / Import / StressTest │
+└──────────────────────────┬──────────────────────────────┘
+                           │ REST + SignalR
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│  ECommerPipeline.Api   (Minimal API + Hangfire + SignalR)│
 └─────────────────────────────────────────────────────────┘
                   ▲                       ▲
                   │                       │
@@ -32,13 +40,17 @@ Demo nguyên lý: **CQRS thực tế** — đọc và ghi ở 2 nơi khác nhau,
 │  ├── Persistence/Oltp   (EF Core, write path)           │
 │  ├── Persistence/Olap   (Dapper, read path, raw SQL)    │
 │  ├── Etl                (SalesEtlPipeline + watermark)  │
+│  │                       + CompressColumnstoreJob)      │
+│  ├── Orders / Customers / Products  (services)          │
+│  ├── Import             (ExcelImportService, ClosedXML) │
 │  └── Initialization     (DatabaseInitializer)           │
 └─────────────────────────────────────────────────────────┘
                   ▲
                   │
 ┌─────────────────────────────────────────────────────────┐
 │  ECommerPipeline.Application                            │
-│  Interfaces, DTOs, contracts                            │
+│  Interfaces, DTOs, Validators, contracts                │
+│  Orders / Customers / Products / Reports / Import       │
 └─────────────────────────────────────────────────────────┘
                   ▲
                   │
@@ -164,6 +176,7 @@ GROUP BY p.Category;
 | Write ORM | Entity Framework Core 9 |
 | Read ORM | Dapper (raw SQL, không track changes) |
 | Bulk Load | `SqlBulkCopy` (5000 row/batch) |
+| Excel Import | ClosedXML (parse + generate .xlsx) |
 | Job Scheduler | Hangfire (recurring + dashboard) |
 | Real-time push | SignalR (notify Dashboard khi ETL xong) |
 | Validation | FluentValidation |
@@ -177,10 +190,12 @@ GROUP BY p.Category;
 |---|---|
 | Framework | React 18 + TypeScript |
 | Bundler | Vite |
-| Charts | Recharts |
+| UI Library | **Tremor** + Tailwind CSS (BI-style components) |
+| Icons | Heroicons |
+| Charts | Tremor charts (AreaChart, DonutChart, BarList — Recharts under the hood) |
 | HTTP | Axios |
 | Real-time | `@microsoft/signalr` client |
-| Routing | React Router |
+| Routing | React Router v6 (nested layouts) |
 
 ---
 
@@ -220,13 +235,27 @@ npm run dev
 
 ## 7. Test như thế nào?
 
-Mở [`src/ECommerPipeline.Api/ECommerPipeline.Api.http`](src/ECommerPipeline.Api/ECommerPipeline.Api.http) trong VS Code (cần extension **REST Client** — `humao.rest-client`). Click **Send Request** lần lượt 7 block. Flow:
+### Cách 1 — Qua UI (khuyến nghị, không cần SSMS)
+
+Mở http://localhost:5173, demo end-to-end qua sidebar:
+
+| Bước | Page | Hành động |
+|---|---|---|
+| 1 | **New Order** | Search customer → chọn → add 3-4 products vào cart → Create |
+| 2 | **Orders** | Filter status/date, paginate, click row xem OrderDetail |
+| 3 | **Import Excel** | Download template → điền Excel → upload → xem success/error rows |
+| 4 | **Stress Test** | Fire 1000 orders → Trigger ETL → Force Compress |
+| 5 | **Dashboard** | SignalR push tự refresh KPIs + 3 charts khi ETL xong |
+
+### Cách 2 — Qua REST file (cho người thích CLI)
+
+Mở [`src/ECommerPipeline.Api/ECommerPipeline.Api.http`](src/ECommerPipeline.Api/ECommerPipeline.Api.http) trong VS Code (cần extension **REST Client** — `humao.rest-client`). Click **Send Request** lần lượt. Flow:
 
 1. POST 3 đơn hàng (ghi OLTP)
 2. POST `/api/admin/trigger-etl` (đẩy dữ liệu sang OLAP ngay)
 3. GET 3 báo cáo (đọc từ OLAP/Columnstore)
 
-Để test lại từ đầu: POST `/api/admin/reset`.
+Để test lại từ đầu: POST `/api/admin/reset` (hoặc click Reset Data trong Stress Test page).
 
 ---
 
@@ -234,13 +263,28 @@ Mở [`src/ECommerPipeline.Api/ECommerPipeline.Api.http`](src/ECommerPipeline.Ap
 
 | Method | Path | Tag | Mô tả |
 |---|---|---|---|
+| **Orders (write + query)** | | | |
 | POST | `/api/orders` | Orders | Tạo đơn hàng — ghi vào OLTP (FluentValidation chặn input xấu) |
-| GET | `/api/reports/sales-by-category?from&to` | Reports | Doanh thu theo category (đọc OLAP) |
+| GET | `/api/orders?page&pageSize&status&customerId&from&to&search` | Orders | List có pagination + filter |
+| GET | `/api/orders/{id}` | Orders | Chi tiết đơn + line items |
+| **Customers / Products lookup** | | | |
+| GET | `/api/customers?search&page&pageSize` | Customers | Lookup cho form Create Order |
+| GET | `/api/products?search&category&page&pageSize` | Products | Lookup product với filter category |
+| GET | `/api/products/categories` | Products | Danh sách category distinct |
+| **Reports (OLAP, Columnstore)** | | | |
+| GET | `/api/reports/sales-by-category?from&to` | Reports | Doanh thu theo category |
 | GET | `/api/reports/sales-by-day?from&to` | Reports | Doanh thu theo ngày |
 | GET | `/api/reports/top-products?from&to&top` | Reports | Top N sản phẩm bán chạy |
+| **Excel Import** | | | |
+| POST | `/api/import/customers` (multipart) | Import | Bulk import customers từ .xlsx |
+| POST | `/api/import/products` (multipart) | Import | Bulk import products |
+| POST | `/api/import/orders` (multipart) | Import | Bulk import orders (grouped by OrderRef) |
+| GET | `/api/import/template/{kind}` | Import | Download template .xlsx (customers/products/orders) |
+| **Admin / utility** | | | |
 | POST | `/api/admin/trigger-etl` | Admin | Enqueue ETL job vào Hangfire (async, 202 Accepted) |
 | POST | `/api/admin/compress-columnstore` | Admin | Enqueue Force Compress columnstore job |
 | POST | `/api/admin/reset` | Admin | Wipe orders + OLAP fact + watermark |
+| **Infra / docs** | | | |
 | GET | `/health` | — | Health check 2 DB |
 | GET | `/hub/etl` | — | SignalR hub — push `etl-completed` event lên client |
 | GET | `/hangfire` | — | Hangfire dashboard (xem job history) |
@@ -268,27 +312,46 @@ Mở [`src/ECommerPipeline.Api/ECommerPipeline.Api.http`](src/ECommerPipeline.Ap
 
 ---
 
-## 9b. 🎨 Frontend Dashboard
+## 9b. 🎨 Frontend SPA — BI Tool Look với Tremor
 
-SPA React + TypeScript hiển thị data real-time từ OLAP, có **3 page chính**:
+SPA React + TypeScript + **Tremor** (Tailwind CSS), layout sidebar dạng BI tool thật, **5 page**:
 
-### Dashboard (`/`)
-- 3 KPI cards: **Total Revenue / Total Orders / Categories**
-- **Sales by Day chart** (line chart, 2 trục: Revenue & Order Count)
-- **Top Products** (bar chart)
-- **Sales by Category** (pie chart)
-- Date range filter (default: 90 ngày qua)
-- Badge **SignalR status** (connected/reconnecting/disconnected)
+### `/` — Dashboard
+- 3 KPI cards: **Total Revenue / Total Orders / Categories** (Tremor `Card` + `Metric`)
+- **Sales by Day** — Tremor `AreaChart` (2-axis: Revenue M VND + Order count)
+- **Sales by Category** — Tremor `DonutChart`
+- **Top 10 Products** — Tremor `BarList` (ranked by revenue)
+- Date range filter (default 90 ngày qua)
+- Badge **SignalR status** (connected/reconnecting/disconnected) — refresh auto khi ETL xong
 
-### Stress Test (`/stress`)
+### `/orders` — Orders List
+- Paginated table với search, status filter, date range filter
+- Click row → navigate `/orders/{id}` (OrderDetail page)
+- Click **+ New Order** → form
+
+### `/orders/new` — Create Order
+Form 3 bước, tất cả qua UI:
+1. **Customer picker** — search bằng tên/email/city, dropdown debounced
+2. **Product picker** — search SKU/name, filter category, click "+ Add" để add
+3. **Cart review** — chỉnh quantity, xoá, xem total realtime
+- Submit → backend FluentValidation → trả về order detail link
+- Success page có 3 action: View Detail / Back / Create Another
+
+### `/import` — Excel Import
+Bulk import qua .xlsx file:
+- **Tabs** cho 3 entity type: Customers / Products / Orders
+- Mỗi tab: download template (.xlsx blank với headers), upload file, xem kết quả
+- Result panel: 3 KPI (Total / Imported / Errors) + bảng errors chi tiết với row number
+- Orders import gom theo `OrderRef` column → multi-line order
+
+### `/stress` — Stress Test
 Công cụ chứng minh OLTP write throughput + ETL pipeline:
-- Input số orders → bấm **Fire** → bắn N requests song song qua `Promise.all`
-- Progress bar realtime, hiển thị thời gian + throughput (orders/sec)
-- Nút **Trigger ETL** (enqueue Hangfire job)
-- Nút **Force Compress** (chạy CompressColumnstoreJob ngay không đợi 2AM)
-- Sau khi job xong → SignalR push → Dashboard tự refresh
+- Input N orders + concurrency → bấm **Fire** → pool-based parallel requests
+- ProgressBar + 4 KPIs realtime: Success / Failed / Elapsed / Throughput (ord/s)
+- Buttons: **Trigger ETL** / **Force Compress** / **Reset Data**
+- Activity log realtime
 
-### Real-time qua SignalR
+### Real-time qua SignalR (StrictMode-safe)
 ```typescript
 // frontend/src/hooks/useEtlNotifications.ts
 const conn = new HubConnectionBuilder()
@@ -297,7 +360,7 @@ const conn = new HubConnectionBuilder()
     .build();
 
 conn.on('etl-completed', (evt) => {
-    // Dashboard auto-refresh
+    // Dashboard auto-refresh KPIs + charts
     onEtlCompleted?.(evt);
 });
 ```
@@ -326,17 +389,52 @@ Compression done in 1938 ms. Now Open=0, Closed=0, Compressed=1
 
 ---
 
+## 9d. 📥 Excel Import Pipeline
+
+**Vấn đề:** Tạo data demo qua SSMS/REST cực kỳ phiền với non-technical user. Cần cho phép Business User chuẩn bị data trong Excel (file họ đã quen) rồi upload 1 phát.
+
+**Giải pháp:** `ExcelImportService` dùng **ClosedXML** (Microsoft OpenXML wrapper) — parse `.xlsx` ở server, validate từng row, bulk insert.
+
+### Hỗ trợ 3 entity type
+| Entity | Columns | Quy tắc đặc biệt |
+|---|---|---|
+| **Customers** | FullName, Email, Phone, City | Email duplicate-check với DB hiện tại |
+| **Products** | Sku, Name, Category, Brand, Price, StockQuantity | Sku duplicate-check, Price > 0 |
+| **Orders** | OrderRef, CustomerEmail, Sku, Quantity | Multi-line: cùng OrderRef → gom 1 order, lookup Customer/Product bằng Email/SKU |
+
+### Strategy: Validate Per-Row, Collect Errors
+Không fail-fast. Đọc hết file, validate từng row, collect error vào list, vẫn save những row valid. Trả về `ImportResult`:
+```json
+{
+  "totalRows": 100,
+  "successCount": 95,
+  "errorCount": 5,
+  "errors": [
+    { "row": 7, "message": "Duplicate email: a@example.com" },
+    { "row": 23, "message": "Product not found by SKU: SKU-XYZ" }
+  ]
+}
+```
+
+### Template Download
+Endpoint `GET /api/import/template/{kind}` trả về `.xlsx` blank với header + 1 row mẫu. Frontend dùng để user khỏi đoán tên column.
+
+---
+
 ## 10. Cấu trúc thư mục
 
 ```
 ECommerPipeline/
-├── src/                                       ← Backend (.NET 9)
-│   ├── ECommerPipeline.Domain/                ← Entities, Enums (no deps)
+├── src/                                          ← Backend (.NET 9)
+│   ├── ECommerPipeline.Domain/                   ← Entities, Enums (no deps)
 │   │
-│   ├── ECommerPipeline.Application/           ← Interfaces, DTOs, Validators
-│   │   ├── Common/Interfaces/
-│   │   ├── Orders/{IOrderService, DTOs, Validators}
-│   │   └── Reports/{IReportService, DTOs}
+│   ├── ECommerPipeline.Application/              ← Interfaces, DTOs, Validators
+│   │   ├── Common/{Interfaces/, DTOs/PagedResult.cs}
+│   │   ├── Orders/    {IOrderService, DTOs/, Validators/}
+│   │   ├── Customers/ {ICustomerService, DTOs/}
+│   │   ├── Products/  {IProductService, DTOs/}
+│   │   ├── Reports/   {IReportService, DTOs/}
+│   │   └── Import/    {IImportService, DTOs/}
 │   │
 │   ├── ECommerPipeline.Infrastructure/
 │   │   ├── DependencyInjection.cs
@@ -344,29 +442,44 @@ ECommerPipeline/
 │   │   ├── Persistence/
 │   │   │   ├── Oltp/ {OltpDbContext, Configurations, Migrations}
 │   │   │   └── Olap/ {OlapConnectionFactory, Scripts/OlapSchema.sql}
-│   │   ├── Orders/OrderService.cs
-│   │   ├── Reports/ReportService.cs           ← raw SQL với Dapper
-│   │   ├── Realtime/EtlNotificationHub.cs     ← SignalR hub
+│   │   ├── Orders/    OrderService.cs            ← + paged list, detail
+│   │   ├── Customers/ CustomerService.cs         ← search lookup
+│   │   ├── Products/  ProductService.cs          ← search + categories
+│   │   ├── Reports/   ReportService.cs           ← raw SQL với Dapper
+│   │   ├── Import/    ExcelImportService.cs     ← ClosedXML parse + bulk insert
 │   │   └── Etl/
-│   │       ├── SalesEtlPipeline.cs            ← Extract→Transform→Load
-│   │       ├── EtlJob.cs                      ← + Polly retry
-│   │       └── CompressColumnstoreJob.cs      ← auto-compress 2AM
+│   │       ├── SalesEtlPipeline.cs               ← Extract→Transform→Load
+│   │       ├── EtlJob.cs                         ← + Polly retry
+│   │       └── CompressColumnstoreJob.cs         ← auto-compress 2AM
 │   │
 │   └── ECommerPipeline.Api/
-│       ├── Program.cs                          ← minimal API + DI wiring
+│       ├── Program.cs                            ← minimal API + DI wiring
+│       ├── Hubs/EtlNotificationHub.cs            ← SignalR hub
 │       ├── Middleware/GlobalExceptionHandler.cs
-│       ├── ECommerPipeline.Api.http            ← test flow đầy đủ
+│       ├── ECommerPipeline.Api.http              ← test flow đầy đủ
 │       └── appsettings.json
 │
-├── frontend/                                   ← React SPA (Vite + TypeScript)
+├── frontend/                                     ← React SPA (Vite + TypeScript + Tremor)
 │   ├── src/
-│   │   ├── pages/{Dashboard, StressTest}.tsx
-│   │   ├── components/{KpiCard, charts/...}.tsx
-│   │   ├── hooks/useEtlNotifications.ts        ← SignalR client
-│   │   ├── api/{client, reports, admin}.ts     ← Axios calls
-│   │   └── App.tsx
+│   │   ├── App.tsx                               ← React Router routes
+│   │   ├── components/
+│   │   │   ├── AppLayout.tsx                     ← Sidebar BI-tool layout
+│   │   │   └── DateInput.tsx                     ← Native date input theo theme Tremor
+│   │   ├── pages/
+│   │   │   ├── Dashboard.tsx                     ← Tremor: Card/Metric/AreaChart/DonutChart/BarList
+│   │   │   ├── OrdersList.tsx                    ← Paginated table + filter
+│   │   │   ├── OrderDetail.tsx                   ← Line items + customer info
+│   │   │   ├── CreateOrder.tsx                   ← 3-step form (customer/products/cart)
+│   │   │   ├── ImportPage.tsx                    ← Excel upload với 3 tabs
+│   │   │   └── StressTest.tsx                    ← Bulk-fire orders + admin
+│   │   ├── hooks/useEtlNotifications.ts          ← SignalR client (StrictMode-safe)
+│   │   ├── api/{client, reports, orders, lookups, imports}.ts ← Axios calls
+│   │   ├── types/api.ts                          ← DTOs khớp backend
+│   │   └── index.css                             ← @tailwind directives
+│   ├── tailwind.config.js                        ← Tremor color/shadow tokens
+│   ├── postcss.config.js
 │   ├── package.json
-│   └── vite.config.ts                          ← proxy to backend
+│   └── vite.config.ts                            ← proxy /api + /hub to :5193
 │
 └── ECommerPipeline.sln
 ```
@@ -375,12 +488,19 @@ ECommerPipeline/
 
 ## 11. Screenshots
 
-> 📸 **TODO:** Đính kèm 4 ảnh sau (sau khi bạn chụp):
+> 📸 **TODO:** Đính kèm các ảnh sau (sau khi bạn chụp), lưu vào `docs/screenshots/`:
 >
-> 1. `docs/screenshots/dashboard.png` — Dashboard với 22T VND revenue + biểu đồ 90 ngày
-> 2. `docs/screenshots/stress-test.png` — Fire 1000 orders + Hangfire processing kế bên
-> 3. `docs/screenshots/hangfire.png` — Recurring Jobs (`sales-etl` + `compress-columnstore`)
-> 4. `docs/screenshots/execution-plan.png` — SSMS Execution Plan: Columnstore Index Scan, Batch Mode
+> **Frontend (Tremor BI dashboard):**
+> 1. `dashboard.png` — Dashboard với KPI cards + AreaChart + DonutChart + BarList
+> 2. `orders-list.png` — Orders table với pagination + status filter
+> 3. `create-order.png` — 3-step form (customer picker + product picker + cart)
+> 4. `order-detail.png` — Order detail với line items + customer info + status badge
+> 5. `import-excel.png` — Import page với tabs + upload + result summary
+> 6. `stress-test.png` — Fire 1000 orders + Hangfire processing kế bên
+>
+> **Infra / debug:**
+> 7. `hangfire.png` — Recurring Jobs (`sales-etl` + `compress-columnstore`)
+> 8. `execution-plan.png` — SSMS Execution Plan: Columnstore Index Scan, Batch Mode
 
 ---
 
@@ -390,6 +510,9 @@ ECommerPipeline/
 - [x] SignalR — push báo cáo realtime lên dashboard
 - [x] Frontend SPA — React Dashboard + Stress Test
 - [x] Automated Columnstore Maintenance Job
+- [x] Order Management (list / detail / create) — no SSMS needed
+- [x] Excel Import (customers / products / orders) — ClosedXML + template download
+- [x] BI-style UI refactor với Tremor + Tailwind CSS
 
 ### Đang muốn làm
 - [ ] **CDC (Change Data Capture)** thay watermark — track DELETE/UPDATE chính xác (cần SQL Server Developer/Enterprise + sysadmin role)
@@ -399,3 +522,5 @@ ECommerPipeline/
 - [ ] **Power BI / Grafana** đọc trực tiếp OLAP — share dashboard với non-technical user
 - [ ] **xUnit + Testcontainers** — integration test với SQL Server container
 - [ ] **Docker compose** — 1 lệnh up cả stack: SQL Server + Seq + API + Frontend
+- [ ] **Authentication** — JWT + role-based authorization (admin xem được Stress Test, user thường chỉ Dashboard)
+- [ ] **Excel Export** — download reports về .xlsx (đối ngẫu với Import)
