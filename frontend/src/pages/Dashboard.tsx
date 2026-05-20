@@ -1,10 +1,21 @@
 import { useEffect, useState, useCallback } from 'react'
+import {
+  Card,
+  Metric,
+  Text,
+  Grid,
+  Flex,
+  Badge,
+  Title,
+  AreaChart,
+  BarList,
+  DonutChart,
+  Button,
+} from '@tremor/react'
 import { reportsApi, type DateRange } from '../api/reports'
 import type { SalesByCategoryRow, SalesByDayRow, TopProductRow } from '../types/api'
-import { SalesByDayChart } from '../components/SalesByDayChart'
-import { SalesByCategoryChart } from '../components/SalesByCategoryChart'
-import { TopProductsChart } from '../components/TopProductsChart'
 import { useEtlNotifications } from '../hooks/useEtlNotifications'
+import { DateInput } from '../components/DateInput'
 
 function defaultRange(): DateRange {
   const to = new Date()
@@ -14,6 +25,10 @@ function defaultRange(): DateRange {
     from: from.toISOString().slice(0, 10),
     to:   to.toISOString().slice(0, 10),
   }
+}
+
+function formatVnd(n: number): string {
+  return n.toLocaleString('vi-VN', { maximumFractionDigits: 0 }) + ' ₫'
 }
 
 export function Dashboard() {
@@ -45,67 +60,124 @@ export function Dashboard() {
 
   useEffect(() => { load(range) }, [load, range])
 
-  // Auto-refresh dashboard when backend pushes ETL completion via SignalR
   const { status: signalRStatus, lastEvent } = useEtlNotifications(
     useCallback(() => { load(range) }, [load, range])
   )
 
+  // Unique-order counts can be summed across categories (will double-count orders that
+  // span multiple categories — acceptable approximation for the KPI tile).
   const totalRevenue = byCategory.reduce((s, r) => s + r.totalRevenue, 0)
   const totalOrders  = byCategory.reduce((s, r) => s + r.orderCount, 0)
 
+  const chartData = byDay.map(d => ({
+    date: new Date(d.day).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }),
+    Revenue: Math.round(d.totalRevenue / 1_000_000),
+    Orders: d.orderCount,
+  }))
+
+  const topList = topProducts.map(p => ({ name: p.name, value: p.totalRevenue }))
+
+  const donutData = byCategory.map(c => ({
+    name: c.category,
+    sales: c.totalRevenue,
+  }))
+
+  const badgeColor =
+    signalRStatus === 'connected'    ? 'emerald' :
+    signalRStatus === 'reconnecting' ? 'amber'   :
+    signalRStatus === 'connecting'   ? 'blue'    : 'rose'
+
   return (
-    <div className="dashboard">
-      <div className="filter-bar">
-        <label>
-          From:{' '}
-          <input type="date" value={range.from}
-                 onChange={e => setRange({ ...range, from: e.target.value })} />
-        </label>
-        <label>
-          To:{' '}
-          <input type="date" value={range.to}
-                 onChange={e => setRange({ ...range, to: e.target.value })} />
-        </label>
-        <button onClick={() => load(range)} disabled={loading}>
-          {loading ? 'Loading...' : 'Refresh'}
-        </button>
-        <span className={`signalr-badge ${signalRStatus}`}>
+    <div className="p-6 space-y-6">
+      <Flex justifyContent="between" alignItems="center">
+        <div>
+          <Title className="!text-2xl">Dashboard</Title>
+          <Text>Real-time analytics from OLAP (Columnstore) — last 90 days</Text>
+        </div>
+        <Badge color={badgeColor}>
           ● SignalR: {signalRStatus}
-          {lastEvent && ` — last ETL: ${lastEvent.totalRowsProcessed} rows, ${lastEvent.durationMs} ms`}
-        </span>
-      </div>
+          {lastEvent && ` • last ETL ${lastEvent.totalRowsProcessed} rows in ${lastEvent.durationMs}ms`}
+        </Badge>
+      </Flex>
 
-      {error && <div className="error">⚠️ {error}</div>}
+      <Card>
+        <Flex justifyContent="start" className="gap-4 flex-wrap">
+          <div>
+            <Text>From</Text>
+            <DateInput value={range.from} onChange={v => setRange({ ...range, from: v })} />
+          </div>
+          <div>
+            <Text>To</Text>
+            <DateInput value={range.to} onChange={v => setRange({ ...range, to: v })} />
+          </div>
+          <div className="self-end">
+            <Button onClick={() => load(range)} loading={loading}>
+              Refresh
+            </Button>
+          </div>
+        </Flex>
+      </Card>
 
-      <div className="kpi-row">
-        <div className="kpi-card">
-          <div className="kpi-label">Total Revenue</div>
-          <div className="kpi-value">{totalRevenue.toLocaleString('vi-VN')} ₫</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-label">Orders</div>
-          <div className="kpi-value">{totalOrders.toLocaleString()}</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-label">Categories</div>
-          <div className="kpi-value">{byCategory.length}</div>
-        </div>
-      </div>
+      {error && (
+        <Card decoration="left" decorationColor="rose">
+          <Text color="rose">⚠️ {error}</Text>
+        </Card>
+      )}
 
-      <div className="chart-grid">
-        <div className="chart-card wide">
-          <h3>Sales by Day</h3>
-          <SalesByDayChart data={byDay} />
-        </div>
-        <div className="chart-card">
-          <h3>Sales by Category</h3>
-          <SalesByCategoryChart data={byCategory} />
-        </div>
-        <div className="chart-card">
-          <h3>Top 10 Products</h3>
-          <TopProductsChart data={topProducts} />
-        </div>
-      </div>
+      <Grid numItemsMd={3} className="gap-6">
+        <Card decoration="top" decorationColor="blue">
+          <Text>Total Revenue (90d)</Text>
+          <Metric>{formatVnd(totalRevenue)}</Metric>
+        </Card>
+        <Card decoration="top" decorationColor="indigo">
+          <Text>Total Orders (sum across categories)</Text>
+          <Metric>{totalOrders.toLocaleString('en-US')}</Metric>
+        </Card>
+        <Card decoration="top" decorationColor="emerald">
+          <Text>Active Categories</Text>
+          <Metric>{byCategory.length}</Metric>
+        </Card>
+      </Grid>
+
+      <Card>
+        <Title>Sales by Day</Title>
+        <Text>Revenue (M VND) and order count over time</Text>
+        <AreaChart
+          className="h-72 mt-4"
+          data={chartData}
+          index="date"
+          categories={['Revenue', 'Orders']}
+          colors={['blue', 'emerald']}
+          valueFormatter={n => n.toLocaleString('en-US')}
+          showLegend
+          showGridLines
+          yAxisWidth={60}
+        />
+      </Card>
+
+      <Grid numItemsMd={2} className="gap-6">
+        <Card>
+          <Title>Sales by Category</Title>
+          <Text>Revenue split across categories</Text>
+          <DonutChart
+            className="h-60 mt-4"
+            data={donutData}
+            category="sales"
+            index="name"
+            valueFormatter={formatVnd}
+            colors={['blue', 'indigo', 'cyan', 'emerald', 'amber', 'rose', 'violet', 'fuchsia']}
+          />
+        </Card>
+        <Card>
+          <Title>Top 10 Products by Revenue</Title>
+          <Text>Bestsellers in selected range</Text>
+          <BarList
+            className="mt-4"
+            data={topList}
+            valueFormatter={formatVnd}
+          />
+        </Card>
+      </Grid>
     </div>
   )
 }

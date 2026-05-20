@@ -1,9 +1,32 @@
 import { api } from './client'
-import type { CreateOrderRequest, OrderCreatedResponse, EtlEnqueuedResponse } from '../types/api'
+import type {
+  CreateOrderRequest,
+  OrderCreatedResponse,
+  EtlEnqueuedResponse,
+  PagedResult,
+  OrderListItem,
+  OrderDetail,
+} from '../types/api'
+
+export interface OrderListQuery {
+  page?: number
+  pageSize?: number
+  status?: number
+  customerId?: number
+  from?: string  // YYYY-MM-DD
+  to?: string
+  search?: string
+}
 
 export const ordersApi = {
   create: (req: CreateOrderRequest) =>
     api.post<OrderCreatedResponse>('/api/orders', req).then(r => r.data),
+
+  list: (params: OrderListQuery = {}) =>
+    api.get<PagedResult<OrderListItem>>('/api/orders', { params }).then(r => r.data),
+
+  getById: (id: number) =>
+    api.get<OrderDetail>(`/api/orders/${id}`).then(r => r.data),
 }
 
 export const adminApi = {

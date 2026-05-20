@@ -1,11 +1,17 @@
 using ECommerPipeline.Application.Common.Interfaces;
+using ECommerPipeline.Application.Customers;
+using ECommerPipeline.Application.Import;
 using ECommerPipeline.Application.Orders;
+using ECommerPipeline.Application.Products;
 using ECommerPipeline.Application.Reports;
+using ECommerPipeline.Infrastructure.Customers;
 using ECommerPipeline.Infrastructure.Etl;
+using ECommerPipeline.Infrastructure.Import;
 using ECommerPipeline.Infrastructure.Initialization;
 using ECommerPipeline.Infrastructure.Orders;
 using ECommerPipeline.Infrastructure.Persistence.Olap;
 using ECommerPipeline.Infrastructure.Persistence.Oltp;
+using ECommerPipeline.Infrastructure.Products;
 using ECommerPipeline.Infrastructure.Reports;
 using Hangfire;
 using Hangfire.SqlServer;
@@ -31,7 +37,10 @@ public static class DependencyInjection
 
         // Services
         services.AddScoped<IOrderService, OrderService>();
+        services.AddScoped<ICustomerService, CustomerService>();
+        services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IReportService, ReportService>();
+        services.AddScoped<IImportService, ExcelImportService>();
 
         // ETL
         services.AddScoped<IEtlPipeline, SalesEtlPipeline>();
