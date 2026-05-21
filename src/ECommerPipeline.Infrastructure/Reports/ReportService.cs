@@ -62,10 +62,16 @@ public class ReportService : IReportService
         return QueryAsync<TopProductRow>(sql, new { From = from.Date, To = to.Date, Top = top }, ct);
     }
 
-    /// Wraps Dapper QueryAsync so that a CancellationToken-triggered SqlException
-    /// (numbers 0 / -2 / "Operation cancelled by user") is converted to a clean
-    /// OperationCanceledException — letting the global exception handler return
-    /// 499 (client closed request) instead of leaking a scary 500 SqlException.
+    /// Wraps Dapper QueryAsync so that any cancellation flavor — pure
+    /// OperationCanceledException OR a CancellationToken-triggered SqlException
+    /// (numbers 0 / -2 / "Operation cancelled by user") — is surfaced as a single
+    /// OperationCanceledException type. The global exception handler then returns
+    /// 499 (client closed request) instead of leaking a 500 SqlException OR
+    /// triggering the Visual Studio "user-unhandled" debugger break.
+    ///
+    /// Catching OperationCanceledException explicitly (even just to rethrow) is
+    /// what tells the debugger "user code is aware of this" — without it, VS
+    /// pauses on TaskCanceledException during dev.
     private async Task<IReadOnlyList<T>> QueryAsync<T>(string sql, object parameters, CancellationToken ct)
     {
         using var conn = _factory.CreateConnection();
@@ -74,6 +80,11 @@ public class ReportService : IReportService
             var rows = await conn.QueryAsync<T>(
                 new CommandDefinition(sql, parameters, cancellationToken: ct));
             return rows.AsList();
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal cancellation — propagate as-is to the global handler.
+            throw;
         }
         catch (SqlException ex) when (ct.IsCancellationRequested)
         {
