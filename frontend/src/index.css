@@ -8,7 +8,63 @@ html, body, #root {
 }
 
 body {
-  @apply bg-gray-50 text-gray-900 antialiased font-sans;
-  @apply dark:bg-gray-950 dark:text-gray-100;
+  @apply bg-gray-950 text-gray-100 antialiased font-sans;
   font-family: 'Inter', 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ---- Contrast boost for Tremor on dark mode ----
+   Tremor's default "content" colors are a bit muted on dark bg.
+   Override the heaviest-used Title/Text/Metric so they pop.        */
+@layer components {
+  /* Title — biggest headings */
+  .dark .tremor-Title-root {
+    @apply text-gray-50;
+  }
+
+  /* Text — secondary paragraph text */
+  .dark .tremor-Text-root {
+    @apply text-gray-300;
+  }
+
+  /* Metric — KPI big numbers */
+  .dark .tremor-Metric-root {
+    @apply text-white;
+  }
+
+  /* Table headers */
+  .dark .tremor-TableHeaderCell-root {
+    @apply text-gray-300;
+  }
+
+  /* Table body text */
+  .dark .tremor-TableCell-root {
+    @apply text-gray-200;
+  }
+
+  /* Card background — make subtle so it stands out from page */
+  .dark .tremor-Card-root {
+    @apply bg-gray-900 border-gray-800;
+  }
+
+  /* Form inputs (TextInput, NumberInput, Select) */
+  .dark .tremor-TextInput-root,
+  .dark .tremor-NumberInput-root,
+  .dark .tremor-Select-button {
+    @apply bg-gray-900 border-gray-700 text-gray-100;
+  }
+
+  /* Button — secondary variant on dark mode */
+  .dark .tremor-Button-root[data-variant='secondary'] {
+    @apply bg-gray-800 border-gray-700 text-gray-100 hover:bg-gray-700;
+  }
+
+  /* Tab list separator visibility */
+  .dark .tremor-TabList-root {
+    @apply border-b border-gray-800;
+  }
+}
+
+/* Page section headings (the big "Dashboard" / "Orders" titles) */
+.dark h1, .dark h2 {
+  @apply text-gray-50;
 }
