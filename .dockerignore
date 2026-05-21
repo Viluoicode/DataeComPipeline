@@ -1,0 +1,29 @@
+# .NET build artifacts
+**/bin/
+**/obj/
+**/out/
+**/*.user
+
+# Frontend build artifacts
+**/node_modules/
+**/dist/
+**/.vite/
+
+# IDE / OS
+.vs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docs (no need in image)
+README.md
+docs/
+
+# Scratch
+SQLQuery*.sql
+**/*.log

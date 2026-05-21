@@ -44,10 +44,20 @@ builder.Services.AddValidatorsFromAssemblyContaining<CreateOrderRequestValidator
 
 builder.Services.AddCors(options =>
 {
+    // Allowed origins can be overridden by env var Cors__AllowedOrigins
+    // (comma-separated). Defaults cover Vite dev + preview + Docker frontend.
+    var allowedOrigins = builder.Configuration["Cors:AllowedOrigins"]
+        ?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        ?? new[]
+        {
+            "http://localhost:5173",  // Vite dev
+            "http://localhost:4173",  // Vite preview
+            "http://localhost",       // Docker nginx (port 80)
+            "http://localhost:80",
+        };
+
     options.AddPolicy("Frontend", policy => policy
-        .WithOrigins(
-            "http://localhost:5173",  // Vite dev server
-            "http://localhost:4173")  // Vite preview server
+        .WithOrigins(allowedOrigins)
         .AllowAnyHeader()
         .AllowAnyMethod()
         .AllowCredentials());          // cần cho SignalR

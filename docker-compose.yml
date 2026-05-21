@@ -1,0 +1,83 @@
+# ========================================================================
+#  ECommerPipeline — full stack in one command
+#
+#  Usage:
+#    docker compose up -d              # start everything
+#    docker compose logs -f api        # tail backend logs
+#    docker compose down               # stop
+#    docker compose down -v            # stop + wipe SQL data volume
+#
+#  Then open: http://localhost
+#    /            → storefront landing
+#    /admin       → admin dashboard
+#    /hangfire    → background jobs
+#    /scalar/v1   → API docs
+#
+#  SQL Server is also reachable at localhost:1433 if you need to inspect
+#  with SSMS (user: sa, password: see SA_PASSWORD below).
+# ========================================================================
+
+services:
+
+  # ----- SQL Server 2022 ------------------------------------------------
+  sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: ecom-sql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "YourStrong@Passw0rd"
+      MSSQL_PID: "Developer"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sql_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'YourStrong@Passw0rd' -No -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      retries: 12
+      start_period: 30s
+      timeout: 5s
+
+  # ----- Backend API ----------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: src/ECommerPipeline.Api/Dockerfile
+    container_name: ecom-api
+    depends_on:
+      sql:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__OltpConnection:      "Server=sql;Database=ECommerPipeline_Oltp;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;Encrypt=False;"
+      ConnectionStrings__OlapConnection:      "Server=sql;Database=ECommerPipeline_Olap;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;Encrypt=False;"
+      ConnectionStrings__HangfireConnection:  "Server=sql;Database=ECommerPipeline_Hangfire;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;Encrypt=False;"
+      # Smaller seed for first-up demo (override if you want full benchmark data)
+      Seed__CustomerCount: "500"
+      Seed__ProductCount: "100"
+      Seed__OrderCount: "5000"
+    ports:
+      # Direct API access for debugging (frontend proxies via nginx anyway)
+      - "5193:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/health || exit 1"]
+      interval: 15s
+      retries: 8
+      start_period: 60s
+      timeout: 5s
+
+  # ----- Frontend (Nginx + built SPA) -----------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ecom-frontend
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "80:80"
+
+volumes:
+  sql_data:
