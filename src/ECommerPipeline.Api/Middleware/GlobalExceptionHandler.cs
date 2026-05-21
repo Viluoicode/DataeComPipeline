@@ -19,6 +19,14 @@ public class GlobalExceptionHandler : IExceptionHandler
         Exception exception,
         CancellationToken cancellationToken)
     {
+        // Client disconnected mid-request — not a server error, don't spam logs.
+        if (exception is OperationCanceledException && httpContext.RequestAborted.IsCancellationRequested)
+        {
+            _logger.LogDebug("Request cancelled by client on {Path}", httpContext.Request.Path);
+            httpContext.Response.StatusCode = 499; // unofficial: client closed request
+            return true;
+        }
+
         _logger.LogError(exception, "Unhandled exception on {Path}", httpContext.Request.Path);
 
         var (status, title) = exception switch

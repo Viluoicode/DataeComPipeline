@@ -39,26 +39,35 @@ export function Dashboard() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async (r: DateRange) => {
+  const load = useCallback(async (r: DateRange, signal?: AbortSignal) => {
     setLoading(true)
     setError(null)
     try {
       const [d, c, p] = await Promise.all([
-        reportsApi.salesByDay(r),
-        reportsApi.salesByCategory(r),
-        reportsApi.topProducts(r, 10),
+        reportsApi.salesByDay(r, signal),
+        reportsApi.salesByCategory(r, signal),
+        reportsApi.topProducts(r, 10, signal),
       ])
       setByDay(d)
       setByCategory(c)
       setTopProducts(p)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load reports')
+    } catch (e: unknown) {
+      // Swallow abort errors — they mean the user moved on (filter changed
+      // or component unmounted) and we don't want to flash a fake error.
+      const err = e as { name?: string; code?: string; message?: string }
+      if (err?.name === 'CanceledError' || err?.name === 'AbortError' || err?.code === 'ERR_CANCELED') return
+      setError(err?.message ?? 'Failed to load reports')
     } finally {
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => { load(range) }, [load, range])
+  // Cancel previous request when range changes or component unmounts.
+  useEffect(() => {
+    const ctrl = new AbortController()
+    load(range, ctrl.signal)
+    return () => ctrl.abort()
+  }, [load, range])
 
   const { status: signalRStatus, lastEvent } = useEtlNotifications(
     useCallback(() => { load(range) }, [load, range])
