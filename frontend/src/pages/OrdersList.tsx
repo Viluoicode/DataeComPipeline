@@ -19,6 +19,7 @@ import {
   type Color,
 } from '@tremor/react'
 import { ordersApi, type OrderListQuery } from '../api/orders'
+import { isAbortError } from '../api/client'
 import { OrderStatusLabel, type OrderListItem } from '../types/api'
 import { DateInput } from '../components/DateInput'
 
@@ -51,6 +52,7 @@ export function OrdersList() {
       setItems(res.items)
       setTotal(res.total)
     } catch (e) {
+      if (isAbortError(e)) return
       setError(e instanceof Error ? e.message : 'Failed to load orders')
     } finally {
       setLoading(false)

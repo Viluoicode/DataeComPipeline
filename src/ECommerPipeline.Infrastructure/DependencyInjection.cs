@@ -26,8 +26,15 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration config)
     {
         // OLTP — EF Core, write path
+        // EnableRetryOnFailure: auto-retry on transient SQL errors (network blip,
+        // pool exhaustion, deadlock retry). Without this, EF surfaces SqlException
+        // immediately and the user sees a 500 on a transient issue.
         services.AddDbContext<OltpDbContext>(o =>
-            o.UseSqlServer(config.GetConnectionString("OltpConnection")));
+            o.UseSqlServer(config.GetConnectionString("OltpConnection"), sql =>
+                sql.EnableRetryOnFailure(
+                    maxRetryCount: 3,
+                    maxRetryDelay: TimeSpan.FromSeconds(5),
+                    errorNumbersToAdd: null)));
         services.AddScoped<IOltpDbContext>(sp => sp.GetRequiredService<OltpDbContext>());
 
         // OLAP — Dapper, read path

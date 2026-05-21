@@ -13,6 +13,7 @@ import {
   Button,
 } from '@tremor/react'
 import { reportsApi, type DateRange } from '../api/reports'
+import { isAbortError } from '../api/client'
 import type { SalesByCategoryRow, SalesByDayRow, TopProductRow } from '../types/api'
 import { useEtlNotifications } from '../hooks/useEtlNotifications'
 import { DateInput } from '../components/DateInput'
@@ -54,8 +55,8 @@ export function Dashboard() {
     } catch (e: unknown) {
       // Swallow abort errors — they mean the user moved on (filter changed
       // or component unmounted) and we don't want to flash a fake error.
-      const err = e as { name?: string; code?: string; message?: string }
-      if (err?.name === 'CanceledError' || err?.name === 'AbortError' || err?.code === 'ERR_CANCELED') return
+      if (isAbortError(e)) return
+      const err = e as { message?: string }
       setError(err?.message ?? 'Failed to load reports')
     } finally {
       setLoading(false)

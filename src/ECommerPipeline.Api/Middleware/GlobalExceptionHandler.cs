@@ -19,11 +19,16 @@ public class GlobalExceptionHandler : IExceptionHandler
         Exception exception,
         CancellationToken cancellationToken)
     {
-        // Client disconnected mid-request — not a server error, don't spam logs.
-        if (exception is OperationCanceledException && httpContext.RequestAborted.IsCancellationRequested)
+        // Any cancellation is treated as "client closed request" — not a server
+        // error. This covers: client aborted via AbortController (which doesn't
+        // always propagate to RequestAborted depending on proxy), Vite dev-server
+        // proxy timeout, React StrictMode rapid re-mounts, EF/Dapper cancellation
+        // tokens firing mid-query, etc. We don't want any of these to log as ERR.
+        if (exception is OperationCanceledException)
         {
-            _logger.LogDebug("Request cancelled by client on {Path}", httpContext.Request.Path);
-            httpContext.Response.StatusCode = 499; // unofficial: client closed request
+            _logger.LogDebug("Request cancelled on {Path}", httpContext.Request.Path);
+            if (!httpContext.Response.HasStarted)
+                httpContext.Response.StatusCode = 499; // unofficial: client closed request
             return true;
         }
 

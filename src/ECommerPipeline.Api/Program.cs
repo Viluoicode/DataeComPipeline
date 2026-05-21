@@ -81,7 +81,18 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseExceptionHandler();
-app.UseSerilogRequestLogging();
+app.UseSerilogRequestLogging(opts =>
+{
+    // Demote 499 (client cancelled) from ERR to Debug — it's not a server fault.
+    opts.GetLevel = (httpCtx, _, ex) =>
+    {
+        if (ex is OperationCanceledException || httpCtx.Response.StatusCode == 499)
+            return Serilog.Events.LogEventLevel.Debug;
+        return httpCtx.Response.StatusCode >= 500
+            ? Serilog.Events.LogEventLevel.Error
+            : Serilog.Events.LogEventLevel.Information;
+    };
+});
 app.UseCors("Frontend");
 
 app.MapHealthChecks("/health");

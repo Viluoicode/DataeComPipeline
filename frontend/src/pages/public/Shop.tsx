@@ -21,13 +21,15 @@ export function Shop() {
   useEffect(() => { productsApi.categories().then(setCategories) }, [])
 
   useEffect(() => {
+    let cancelled = false
     const t = setTimeout(() => {
       setLoading(true)
       productsApi.search(search || undefined, category || undefined, page, pageSize)
-        .then(r => { setProducts(r.items); setTotal(r.total) })
-        .finally(() => setLoading(false))
+        .then(r => { if (!cancelled) { setProducts(r.items); setTotal(r.total) } })
+        .catch(() => { /* abort or transient — ignore */ })
+        .finally(() => { if (!cancelled) setLoading(false) })
     }, 250)
-    return () => clearTimeout(t)
+    return () => { cancelled = true; clearTimeout(t) }
   }, [search, category, page])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
