@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import {
   Card,
   Title,
@@ -104,6 +105,7 @@ export function CreateOrder() {
       setSuccess({ orderId: res.orderId, orderNumber: res.orderNumber, total: res.totalAmount })
       setItems([])
       setSelectedCustomer(null)
+      toast.success(`Đơn ${res.orderNumber} đã tạo`)
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string; errors?: Record<string, string[]> } } }
       const detail = err?.response?.data?.detail
@@ -129,7 +131,7 @@ export function CreateOrder() {
           </Text>
           <Flex justifyContent="start" className="gap-3 mt-4">
             <Link to={`/orders/${success.orderId}`}><Button>View Order Detail</Button></Link>
-            <Link to="/orders"><Button variant="secondary">Back to Orders</Button></Link>
+            <Link to="/admin/orders"><Button variant="secondary">Back to Orders</Button></Link>
             <Button variant="light" onClick={() => setSuccess(null)}>Create Another</Button>
           </Flex>
         </Card>
@@ -140,7 +142,7 @@ export function CreateOrder() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <Link to="/orders" className="text-sm text-blue-500 hover:underline">← Back to orders</Link>
+        <Link to="/admin/orders" className="text-sm text-blue-500 hover:underline">← Back to orders</Link>
         <Title className="!text-2xl mt-1">New Order</Title>
         <Text>Fill the form and submit. Backend will validate via FluentValidation, write to OLTP, then ETL pushes to OLAP.</Text>
       </div>
@@ -301,7 +303,7 @@ export function CreateOrder() {
       <Flex justifyContent="end" className="gap-3">
         <Button
           variant="secondary"
-          onClick={() => nav('/orders')}
+          onClick={() => nav('/admin/orders')}
           disabled={submitting}
         >
           Cancel

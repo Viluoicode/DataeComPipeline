@@ -69,7 +69,7 @@ export function OrdersList() {
           <Title className="!text-2xl">Orders</Title>
           <Text>All orders from OLTP database — paged & filterable</Text>
         </div>
-        <Link to="/orders/new">
+        <Link to="/admin/orders/new">
           <Button>+ New Order</Button>
         </Link>
       </Flex>
@@ -168,7 +168,7 @@ export function OrdersList() {
               <TableRow
                 key={o.id}
                 className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
-                onClick={() => nav(`/orders/${o.id}`)}
+                onClick={() => nav(`/admin/orders/${o.id}`)}
               >
                 <TableCell className="font-mono text-xs">{o.orderNumber}</TableCell>
                 <TableCell>{o.customerName}</TableCell>

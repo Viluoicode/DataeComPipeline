@@ -51,7 +51,7 @@ export function OrderDetail() {
     <div className="p-6 space-y-6">
       <Flex justifyContent="between" alignItems="start">
         <div>
-          <Link to="/orders" className="text-sm text-blue-500 hover:underline">← Back to orders</Link>
+          <Link to="/admin/orders" className="text-sm text-blue-500 hover:underline">← Back to orders</Link>
           <Title className="!text-2xl mt-1">{order.orderNumber}</Title>
           <Text>Placed {new Date(order.orderDate).toLocaleString('vi-VN')}</Text>
         </div>
@@ -103,7 +103,7 @@ export function OrderDetail() {
       </Card>
 
       <Flex justifyContent="end">
-        <Link to="/orders">
+        <Link to="/admin/orders">
           <Button variant="secondary">← Back</Button>
         </Link>
       </Flex>

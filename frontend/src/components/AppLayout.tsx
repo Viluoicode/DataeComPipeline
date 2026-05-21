@@ -10,11 +10,11 @@ import {
 import clsx from 'clsx'
 
 const nav = [
-  { to: '/',            label: 'Dashboard',     icon: ChartBarSquareIcon },
-  { to: '/orders',      label: 'Orders',        icon: ShoppingCartIcon },
-  { to: '/orders/new',  label: 'New Order',     icon: PlusCircleIcon },
-  { to: '/import',      label: 'Import Excel',  icon: ArrowUpTrayIcon },
-  { to: '/stress',      label: 'Stress Test',   icon: BoltIcon },
+  { to: '/admin',            label: 'Dashboard',     icon: ChartBarSquareIcon, end: true },
+  { to: '/admin/orders',     label: 'Orders',        icon: ShoppingCartIcon,   end: false },
+  { to: '/admin/orders/new', label: 'New Order',     icon: PlusCircleIcon,     end: false },
+  { to: '/admin/import',     label: 'Import Excel',  icon: ArrowUpTrayIcon,    end: false },
+  { to: '/admin/stress',     label: 'Stress Test',   icon: BoltIcon,           end: false },
 ]
 
 export function AppLayout() {
@@ -34,11 +34,11 @@ export function AppLayout() {
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1">
-          {nav.map(({ to, label, icon: Icon }) => (
+          {nav.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}
-              end={to === '/'}
+              end={end}
               className={({ isActive }) =>
                 clsx(
                   'flex items-center gap-3 px-3 py-2 rounded-md text-sm transition',
@@ -54,6 +54,13 @@ export function AppLayout() {
           ))}
 
           <div className="pt-2 mt-2 border-t border-gray-800">
+            <NavLink
+              to="/"
+              className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-gray-300 hover:bg-gray-800 hover:text-gray-100 transition"
+            >
+              <ArrowTopRightOnSquareIcon className="w-5 h-5" />
+              Storefront
+            </NavLink>
             <a
               href="/hangfire"
               target="_blank"

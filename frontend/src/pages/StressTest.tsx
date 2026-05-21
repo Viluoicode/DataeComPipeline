@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import toast from 'react-hot-toast'
 import {
   Card,
   Title,
@@ -19,6 +20,7 @@ import {
   TrashIcon,
 } from '@heroicons/react/24/outline'
 import { ordersApi, adminApi } from '../api/orders'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import type { CreateOrderRequest } from '../types/api'
 
 type Status = 'idle' | 'firing' | 'done' | 'error'
@@ -32,6 +34,7 @@ export function StressTest() {
   const [failed, setFailed] = useState(0)
   const [elapsedMs, setElapsedMs] = useState(0)
   const [log, setLog] = useState<string[]>([])
+  const [confirmReset, setConfirmReset] = useState(false)
   const cancelRef = useRef(false)
 
   const appendLog = (msg: string) =>
@@ -83,17 +86,35 @@ export function StressTest() {
   }
 
   async function triggerEtl() {
-    try { const r = await adminApi.triggerEtl(); appendLog(`📦 ETL enqueued. JobId=${r.jobId}`) }
-    catch (e) { appendLog(`❌ ETL trigger failed: ${e}`) }
+    try {
+      const r = await adminApi.triggerEtl()
+      appendLog(`📦 ETL enqueued. JobId=${r.jobId}`)
+      toast.success(`ETL job ${r.jobId} đã được enqueue`)
+    } catch (e) {
+      appendLog(`❌ ETL trigger failed: ${e}`)
+      toast.error('ETL trigger failed')
+    }
   }
   async function compress() {
-    try { const r = await adminApi.compressColumnstore(); appendLog(`🗜️ Compress enqueued. JobId=${r.jobId}`) }
-    catch (e) { appendLog(`❌ Compress failed: ${e}`) }
+    try {
+      const r = await adminApi.compressColumnstore()
+      appendLog(`🗜️ Compress enqueued. JobId=${r.jobId}`)
+      toast.success(`Compress job ${r.jobId} đã được enqueue`)
+    } catch (e) {
+      appendLog(`❌ Compress failed: ${e}`)
+      toast.error('Compress failed')
+    }
   }
-  async function reset() {
-    if (!confirm('Wipe Orders + OLAP fact + watermark?')) return
-    try { await adminApi.reset(); appendLog('🧹 Reset done.') }
-    catch (e) { appendLog(`❌ Reset failed: ${e}`) }
+  async function doReset() {
+    setConfirmReset(false)
+    try {
+      await adminApi.reset()
+      appendLog('🧹 Reset done.')
+      toast.success('Đã xoá Orders + OLAP fact + watermark')
+    } catch (e) {
+      appendLog(`❌ Reset failed: ${e}`)
+      toast.error('Reset failed')
+    }
   }
 
   const pct = count > 0 ? Math.round((progress / count) * 100) : 0
@@ -135,7 +156,7 @@ export function StressTest() {
           </Button>
           <Button icon={ArrowPathIcon} variant="secondary" onClick={triggerEtl}>Trigger ETL</Button>
           <Button icon={CubeTransparentIcon} variant="secondary" onClick={compress}>Force Compress</Button>
-          <Button icon={TrashIcon} variant="light" color="rose" onClick={reset}>Reset Data</Button>
+          <Button icon={TrashIcon} variant="light" color="rose" onClick={() => setConfirmReset(true)}>Reset Data</Button>
         </Flex>
       </Card>
 
@@ -179,6 +200,16 @@ export function StressTest() {
 {log.join('\n') || '(no activity yet)'}
         </pre>
       </Card>
+
+      <ConfirmDialog
+        open={confirmReset}
+        title="Reset toàn bộ data?"
+        message="Sẽ xoá hết Orders + OrderItems trong OLTP, fact.SalesOrderItem trong OLAP, và watermark. Customers/Products giữ nguyên. Không undo được."
+        confirmLabel="Reset Data"
+        destructive
+        onConfirm={doReset}
+        onCancel={() => setConfirmReset(false)}
+      />
     </div>
   )
 }
