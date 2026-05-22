@@ -1,7 +1,53 @@
-# ECommerPipeline — Data Pipeline OLTP → OLAP
+# ECommerPipeline — Full-stack E-commerce với OLTP/OLAP Analytics Pipeline
 
-> Mô phỏng "nỗi đau" của một e-commerce thật: **báo cáo thống kê làm chậm DB bán hàng**.
-> Giải pháp: tách 2 database (OLTP để ghi, OLAP để đọc) và viết ETL pipeline đồng bộ giữa chúng.
+> **Demo project** mô phỏng "nỗi đau" của một e-commerce thật: **báo cáo thống kê làm chậm DB bán hàng**.
+> Giải pháp: tách 2 database (OLTP để ghi, OLAP để đọc) + ETL pipeline + SignalR real-time dashboard.
+> Có cả storefront customer-facing và admin BI dashboard.
+
+## 🚀 Quick start
+
+```bash
+docker compose up -d        # Toàn bộ stack trong 1 lệnh (~5-7 phút lần đầu)
+```
+
+Mở **http://localhost** — landing page hiện ra → click "Shop ngay" để bắt đầu.
+
+| URL | Mô tả |
+|---|---|
+| http://localhost | Storefront (customer-facing) |
+| http://localhost/admin | Admin BI dashboard |
+| http://localhost/hangfire | Background jobs UI |
+| http://localhost/scalar/v1 | API documentation |
+| http://localhost/health | Health check 2 DB |
+
+Chi tiết: [docs/DOCKER.md](docs/DOCKER.md). Lịch sử dev: [docs/CHANGELOG.md](docs/CHANGELOG.md).
+
+---
+
+## ✨ Features
+
+### 🛍 Storefront (customer-facing)
+- Browse 100+ sản phẩm có ảnh, filter category, search debounced
+- Product detail với related products
+- Cart drawer + Checkout flow + order success
+- My Orders history
+- Mock login/register (JWT thật sẽ làm trong v1.1)
+
+### 🎛 Admin BI Console
+- **Dashboard** với 3 KPI cards + AreaChart/DonutChart/BarList (real-time qua SignalR)
+- **Orders** list với pagination + filter status/date/customer/search
+- **Order Detail** với line items
+- **Create Order** form 3 bước (customer picker → product picker → cart)
+- **Excel Import** 3 entity types (Customers/Products/Orders) với template download
+- **Stress Test** tool: fire 1000 orders concurrent + admin actions
+
+### 🏗 Infrastructure
+- **OLTP / OLAP split** — write fast, read fast, đồng bộ qua ETL
+- **Watermark-based ETL** mỗi 5 phút (Hangfire)
+- **Auto Columnstore compression** mỗi đêm 2AM
+- **SignalR push** notify dashboard khi ETL xong
+- **Polly retry** transient SQL failures
+- **Docker compose** stack 3 containers
 
 ---
 
