@@ -14,6 +14,8 @@ public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         e.Property(x => x.Email).HasMaxLength(200).IsRequired();
         e.Property(x => x.Phone).HasMaxLength(30);
         e.Property(x => x.City).HasMaxLength(100);
+        e.Property(x => x.PasswordHash).HasMaxLength(300);
+        e.Property(x => x.Role).HasConversion<int>();
         e.HasIndex(x => x.Email).IsUnique();
     }
 }

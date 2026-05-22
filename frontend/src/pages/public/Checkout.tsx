@@ -85,7 +85,7 @@ export function Checkout() {
     setSubmitting(true)
     try {
       const res = await ordersApi.create({
-        customerId: user.customerId,
+        customerId: user.id,
         items: items.map(i => ({ productId: i.product.id, quantity: i.quantity })),
       })
       setSuccess({ orderId: res.orderId, orderNumber: res.orderNumber, total: res.totalAmount })

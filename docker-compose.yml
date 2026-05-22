@@ -57,6 +57,10 @@ services:
       Seed__CustomerCount: "500"
       Seed__ProductCount: "100"
       Seed__OrderCount: "5000"
+      # JWT — REPLACE Jwt__Secret in production with a 32+ char random string
+      Jwt__Secret:    "dev-only-secret-replace-in-production-with-32+-random-bytes!!!"
+      Jwt__Issuer:    "ECommerPipeline"
+      Jwt__Audience:  "ECommerPipeline.Client"
     ports:
       # Direct API access for debugging (frontend proxies via nginx anyway)
       - "5193:8080"

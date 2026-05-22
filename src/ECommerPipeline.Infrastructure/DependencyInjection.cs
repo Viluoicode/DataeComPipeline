@@ -1,9 +1,11 @@
+using ECommerPipeline.Application.Auth;
 using ECommerPipeline.Application.Common.Interfaces;
 using ECommerPipeline.Application.Customers;
 using ECommerPipeline.Application.Import;
 using ECommerPipeline.Application.Orders;
 using ECommerPipeline.Application.Products;
 using ECommerPipeline.Application.Reports;
+using ECommerPipeline.Infrastructure.Auth;
 using ECommerPipeline.Infrastructure.Customers;
 using ECommerPipeline.Infrastructure.Etl;
 using ECommerPipeline.Infrastructure.Import;
@@ -48,6 +50,11 @@ public static class DependencyInjection
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IReportService, ReportService>();
         services.AddScoped<IImportService, ExcelImportService>();
+
+        // Auth
+        services.Configure<JwtOptions>(config.GetSection(JwtOptions.SectionName));
+        services.AddSingleton<JwtTokenService>();
+        services.AddScoped<IAuthService, AuthService>();
 
         // ETL
         services.AddScoped<IEtlPipeline, SalesEtlPipeline>();

@@ -26,7 +26,7 @@ export function MyOrders() {
   useEffect(() => {
     if (!user) return
     setLoading(true)
-    ordersApi.list({ customerId: user.customerId, pageSize: 50 })
+    ordersApi.list({ customerId: user.id, pageSize: 50 })
       .then(r => setOrders(r.items))
       .finally(() => setLoading(false))
   }, [user])

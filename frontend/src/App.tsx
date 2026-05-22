@@ -3,9 +3,10 @@ import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './contexts/AuthContext'
 import { CartProvider } from './contexts/CartContext'
 
-// Layouts
+// Layouts + guards
 import { PublicLayout } from './components/PublicLayout'
 import { AppLayout } from './components/AppLayout'
+import { ProtectedRoute } from './components/ProtectedRoute'
 
 // Public pages (storefront)
 import { Landing } from './pages/public/Landing'
@@ -38,25 +39,31 @@ export default function App() {
             }}
           />
           <Routes>
-            {/* ── Public storefront ── */}
+            {/* ── Public storefront — open to everyone ── */}
             <Route element={<PublicLayout />}>
               <Route path="/"               element={<Landing />} />
               <Route path="/shop"           element={<Shop />} />
               <Route path="/shop/:id"       element={<ProductDetail />} />
-              <Route path="/checkout"       element={<Checkout />} />
-              <Route path="/my-orders"      element={<MyOrders />} />
               <Route path="/login"          element={<Login />} />
               <Route path="/register"       element={<Register />} />
+
+              {/* Logged-in customer area */}
+              <Route element={<ProtectedRoute />}>
+                <Route path="/checkout"     element={<Checkout />} />
+                <Route path="/my-orders"    element={<MyOrders />} />
+              </Route>
             </Route>
 
-            {/* ── Admin console (existing pages, now prefixed /admin) ── */}
-            <Route path="/admin" element={<AppLayout />}>
-              <Route index                  element={<Dashboard />} />
-              <Route path="orders"          element={<OrdersList />} />
-              <Route path="orders/new"      element={<CreateOrder />} />
-              <Route path="orders/:id"      element={<OrderDetail />} />
-              <Route path="import"          element={<ImportPage />} />
-              <Route path="stress"          element={<StressTest />} />
+            {/* ── Admin console — Admin or Staff role required ── */}
+            <Route element={<ProtectedRoute requireRole="Staff" />}>
+              <Route path="/admin" element={<AppLayout />}>
+                <Route index                element={<Dashboard />} />
+                <Route path="orders"        element={<OrdersList />} />
+                <Route path="orders/new"    element={<CreateOrder />} />
+                <Route path="orders/:id"    element={<OrderDetail />} />
+                <Route path="import"        element={<ImportPage />} />
+                <Route path="stress"        element={<StressTest />} />
+              </Route>
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

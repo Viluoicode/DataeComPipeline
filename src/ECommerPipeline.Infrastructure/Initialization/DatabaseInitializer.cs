@@ -108,6 +108,33 @@ public class DatabaseInitializer
         Randomizer.Seed = new Random(20260518);
         _oltp.ChangeTracker.AutoDetectChangesEnabled = false;
 
+        // ---- Default admin + demo customer (with passwords for login) ----
+        // Demo credentials are intentionally easy for portfolio reviewers.
+        var adminPwd = BCrypt.Net.BCrypt.HashPassword("admin123", workFactor: 11);
+        var demoPwd  = BCrypt.Net.BCrypt.HashPassword("demo123",  workFactor: 11);
+
+        _oltp.Customers.AddRange(
+            new Customer
+            {
+                FullName = "Admin User",
+                Email    = "admin@ecom.com",
+                Phone    = "0900000001",
+                City     = "HCM",
+                PasswordHash = adminPwd,
+                Role     = Domain.Enums.UserRole.Admin,
+            },
+            new Customer
+            {
+                FullName = "Demo Customer",
+                Email    = "demo@ecom.com",
+                Phone    = "0900000002",
+                City     = "HN",
+                PasswordHash = demoPwd,
+                Role     = Domain.Enums.UserRole.Customer,
+            });
+        await _oltp.SaveChangesAsync(ct);
+        _logger.LogInformation("Seeded admin@ecom.com / admin123 and demo@ecom.com / demo123");
+
         // ---- Customers ----
         var cityChoices = new[] { "HCM", "HN", "DN", "HP", "CT", "BMT", "VT", "NT" };
         var customerFaker = new Faker<Customer>()

@@ -1,5 +1,10 @@
+using System.Security.Claims;
+using System.Text;
 using ECommerPipeline.Api.Hubs;
 using ECommerPipeline.Api.Middleware;
+using ECommerPipeline.Application.Auth;
+using ECommerPipeline.Application.Auth.DTOs;
+using ECommerPipeline.Application.Auth.Validators;
 using ECommerPipeline.Application.Common.Interfaces;
 using ECommerPipeline.Application.Customers;
 using ECommerPipeline.Application.Import;
@@ -13,6 +18,8 @@ using ECommerPipeline.Application.Orders.Validators;
 using ECommerPipeline.Infrastructure.Initialization;
 using FluentValidation;
 using Hangfire;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 using Scalar.AspNetCore;
 using Serilog;
 
@@ -41,6 +48,45 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
 builder.Services.AddValidatorsFromAssemblyContaining<CreateOrderRequestValidator>();
+builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
+
+// ============================================================
+//  JWT Bearer authentication
+// ============================================================
+var jwtSecret = builder.Configuration["Jwt:Secret"]
+    ?? throw new InvalidOperationException("Jwt:Secret is required. Set via env var Jwt__Secret or appsettings.");
+var jwtIssuer   = builder.Configuration["Jwt:Issuer"]   ?? "ECommerPipeline";
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "ECommerPipeline.Client";
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer           = true,
+            ValidateAudience         = true,
+            ValidateLifetime         = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer              = jwtIssuer,
+            ValidAudience            = jwtAudience,
+            IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
+            ClockSkew                = TimeSpan.FromMinutes(1),
+        };
+
+        // Allow SignalR to authenticate via query string ?access_token=...
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = ctx =>
+            {
+                var token = ctx.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(token) && ctx.HttpContext.Request.Path.StartsWithSegments("/hub"))
+                    ctx.Token = token;
+                return Task.CompletedTask;
+            }
+        };
+    });
+builder.Services.AddAuthorization();
 
 builder.Services.AddCors(options =>
 {
@@ -90,6 +136,9 @@ if (app.Environment.IsDevelopment())
         .WithDefaultHttpClient(ScalarTarget.Http, ScalarClient.Http11));
 }
 
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.UseExceptionHandler();
 app.UseSerilogRequestLogging(opts =>
 {
@@ -107,6 +156,52 @@ app.UseCors("Frontend");
 
 app.MapHealthChecks("/health");
 app.MapHub<EtlNotificationHub>("/hub/etl");
+
+// ============================================================
+//  Auth — register / login / refresh / me
+// ============================================================
+app.MapPost("/api/auth/register", async (
+        RegisterRequest req,
+        IValidator<RegisterRequest> validator,
+        IAuthService auth,
+        CancellationToken ct) =>
+{
+    var result = await validator.ValidateAsync(req, ct);
+    if (!result.IsValid) return Results.ValidationProblem(result.ToDictionary());
+    return Results.Ok(await auth.RegisterAsync(req, ct));
+}).WithTags("Auth");
+
+app.MapPost("/api/auth/login", async (
+        LoginRequest req,
+        IValidator<LoginRequest> validator,
+        IAuthService auth,
+        CancellationToken ct) =>
+{
+    var result = await validator.ValidateAsync(req, ct);
+    if (!result.IsValid) return Results.ValidationProblem(result.ToDictionary());
+    try { return Results.Ok(await auth.LoginAsync(req, ct)); }
+    catch (UnauthorizedAccessException ex) { return Results.Problem(ex.Message, statusCode: 401); }
+}).WithTags("Auth");
+
+app.MapPost("/api/auth/refresh", async (RefreshRequest req, IAuthService auth, CancellationToken ct) =>
+{
+    try { return Results.Ok(await auth.RefreshAsync(req.RefreshToken, ct)); }
+    catch (UnauthorizedAccessException ex) { return Results.Problem(ex.Message, statusCode: 401); }
+}).WithTags("Auth");
+
+app.MapPost("/api/auth/logout", async (RefreshRequest req, IAuthService auth, CancellationToken ct) =>
+{
+    await auth.RevokeAsync(req.RefreshToken, ct);
+    return Results.Ok(new { status = "logged-out" });
+}).WithTags("Auth");
+
+app.MapGet("/api/auth/me", async (ClaimsPrincipal user, IAuthService auth, CancellationToken ct) =>
+{
+    var idStr = user.FindFirstValue("sub") ?? user.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (!long.TryParse(idStr, out var id)) return Results.Unauthorized();
+    var me = await auth.GetCurrentUserAsync(id, ct);
+    return me is null ? Results.NotFound() : Results.Ok(me);
+}).RequireAuthorization().WithTags("Auth");
 
 // ============================================================
 //  OLTP — write path (fast order ingestion)
@@ -206,7 +301,7 @@ app.MapPost("/api/admin/trigger-etl", (IBackgroundJobClient jobs) =>
         dashboard = "/hangfire",
         at       = DateTime.UtcNow
     });
-}).WithTags("Admin");
+}).RequireAuthorization(p => p.RequireRole("Admin", "Staff")).WithTags("Admin");
 
 app.MapPost("/api/admin/compress-columnstore", (IBackgroundJobClient jobs) =>
 {
@@ -219,13 +314,13 @@ app.MapPost("/api/admin/compress-columnstore", (IBackgroundJobClient jobs) =>
         dashboard = "/hangfire",
         at       = DateTime.UtcNow
     });
-}).WithTags("Admin");
+}).RequireAuthorization(p => p.RequireRole("Admin", "Staff")).WithTags("Admin");
 
 app.MapPost("/api/admin/reset", async (ResetService reset, CancellationToken ct) =>
 {
     await reset.ResetAsync(ct);
     return Results.Ok(new { status = "reset-completed", at = DateTime.UtcNow });
-}).WithTags("Admin");
+}).RequireAuthorization(p => p.RequireRole("Admin", "Staff")).WithTags("Admin");
 
 // ============================================================
 //  Excel Import — bulk-create customers / products / orders from .xlsx

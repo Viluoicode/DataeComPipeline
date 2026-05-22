@@ -1,4 +1,5 @@
-import axios, { AxiosError, CanceledError } from 'axios'
+import axios, { AxiosError, CanceledError, type InternalAxiosRequestConfig } from 'axios'
+import { getStoredAuth, setStoredAuth } from '../contexts/AuthContext'
 
 // Base axios instance.
 // In dev, requests to /api/* are proxied by Vite to http://localhost:5193 (see vite.config.ts).
@@ -25,17 +26,77 @@ export function isAbortError(e: unknown): boolean {
       || err?.code === 'ERR_CANCELED'
 }
 
-/**
- * Treat backend 499 (client closed request) as a silent no-op the same way we
- * treat axios-side CanceledError. Anything else flows through normally.
- */
+// ============================================================================
+//  Request interceptor — inject Bearer header on every authenticated request.
+// ============================================================================
+api.interceptors.request.use((config) => {
+  const session = getStoredAuth()
+  if (session?.accessToken) {
+    config.headers = config.headers ?? {}
+    config.headers.Authorization = `Bearer ${session.accessToken}`
+  }
+  return config
+})
+
+// ============================================================================
+//  Response interceptor — auto-refresh on 401, plus cancellation handling.
+// ============================================================================
+let refreshPromise: Promise<string | null> | null = null
+
+async function tryRefresh(): Promise<string | null> {
+  const session = getStoredAuth()
+  if (!session?.refreshToken) return null
+
+  try {
+    const r = await axios.post(
+      (import.meta.env.VITE_API_URL ?? '') + '/api/auth/refresh',
+      { refreshToken: session.refreshToken },
+      { headers: { 'Content-Type': 'application/json' } }
+    )
+    const fresh = r.data
+    setStoredAuth({
+      accessToken:          fresh.accessToken,
+      refreshToken:         fresh.refreshToken,
+      accessTokenExpiresAt: fresh.accessTokenExpiresAt,
+      user:                 fresh.user,
+    })
+    // Notify other tabs / components — they'll pick up via storage event or remount
+    window.dispatchEvent(new Event('auth:refreshed'))
+    return fresh.accessToken
+  } catch {
+    // Refresh failed — wipe session, caller will see 401 propagate
+    setStoredAuth(null)
+    window.dispatchEvent(new Event('auth:expired'))
+    return null
+  }
+}
+
 api.interceptors.response.use(
   r => r,
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
+    // Backend says client cancelled — treat as CanceledError
     if (error.response?.status === 499) {
-      // Backend acknowledged our cancel — swallow.
       return Promise.reject(new CanceledError('Request cancelled by client.'))
     }
+
+    // 401 → try refresh exactly once, then retry the original request
+    const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
+    const isAuthEndpoint = original?.url?.includes('/api/auth/')
+
+    if (error.response?.status === 401 && !original?._retry && !isAuthEndpoint) {
+      original._retry = true
+
+      // Coalesce concurrent 401s into a single refresh call
+      refreshPromise ??= tryRefresh().finally(() => { refreshPromise = null })
+      const newToken = await refreshPromise
+
+      if (newToken) {
+        original.headers = original.headers ?? {}
+        original.headers.Authorization = `Bearer ${newToken}`
+        return api.request(original)
+      }
+    }
+
     return Promise.reject(error)
   }
 )
