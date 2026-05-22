@@ -24,11 +24,16 @@ RUN dotnet publish src/ECommerPipeline.Api/ECommerPipeline.Api.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 
-# Non-root user for security
-RUN groupadd --system app && useradd --system --gid app app
-USER app
+# Install curl so docker-compose healthcheck can hit /health.
+# The minimal aspnet image doesn't ship wget/curl by default.
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 
+# The 'app' user already exists in the official aspnet:9.0 base image (.NET 8+).
 COPY --from=build --chown=app:app /app/publish .
+USER app
 
 ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
