@@ -61,6 +61,8 @@ services:
       Jwt__Secret:    "dev-only-secret-replace-in-production-with-32+-random-bytes!!!"
       Jwt__Issuer:    "ECommerPipeline"
       Jwt__Audience:  "ECommerPipeline.Client"
+      # OpenTelemetry — export traces to Jaeger via OTLP gRPC
+      Otel__Endpoint: "http://jaeger:4317"
     ports:
       # Direct API access for debugging (frontend proxies via nginx anyway)
       - "5193:8080"
@@ -82,6 +84,20 @@ services:
         condition: service_started
     ports:
       - "80:80"
+
+  # ----- Jaeger — OpenTelemetry trace visualization ---------------------
+  # All-in-one image: in-memory storage, OTLP receiver, query UI.
+  # Open http://localhost:16686 to explore traces (request → DB → ETL).
+  # NOT for production — use dedicated tempo/cassandra backend instead.
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    container_name: ecom-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"  # UI
+      - "4317:4317"    # OTLP gRPC receiver
+      - "4318:4318"    # OTLP HTTP receiver
 
 volumes:
   sql_data:

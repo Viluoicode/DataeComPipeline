@@ -20,6 +20,8 @@ using FluentValidation;
 using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
 using Serilog;
 
@@ -108,6 +110,54 @@ builder.Services.AddCors(options =>
         .AllowAnyMethod()
         .AllowCredentials());          // cần cho SignalR
 });
+
+// ============================================================
+//  OpenTelemetry — distributed tracing
+//  Traces flow: HTTP request → controller → EF Core → SQL Server
+//                            → ETL pipeline → SignalR push
+//  Exports to OTLP endpoint (Jaeger via Docker, see docker-compose)
+// ============================================================
+var otlpEndpoint = builder.Configuration["Otel:Endpoint"]
+    ?? Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
+
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(r => r
+        .AddService(
+            serviceName: "ECommerPipeline.Api",
+            serviceVersion: "1.0.0")
+        .AddAttributes(new[]
+        {
+            new KeyValuePair<string, object>("deployment.environment",
+                builder.Environment.EnvironmentName),
+        }))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddSource("ECommerPipeline.Etl")         // ← custom ActivitySource for ETL pipeline
+            .AddSource("ECommerPipeline.DataQuality") // ← custom for DQ job
+            .AddAspNetCoreInstrumentation(o =>
+            {
+                // Don't trace noisy endpoints
+                o.Filter = ctx =>
+                    !ctx.Request.Path.StartsWithSegments("/health") &&
+                    !ctx.Request.Path.StartsWithSegments("/hangfire");
+                o.RecordException = true;
+            })
+            .AddHttpClientInstrumentation()
+            .AddSqlClientInstrumentation(o =>
+            {
+                o.SetDbStatementForText = true;       // include SQL in spans (dev only — strip in prod!)
+                o.RecordException = true;
+            });
+
+        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+        {
+            tracing.AddOtlpExporter(opt =>
+            {
+                opt.Endpoint = new Uri(otlpEndpoint);
+            });
+        }
+    });
 
 builder.Services.AddHealthChecks()
     .AddSqlServer(builder.Configuration.GetConnectionString("OltpConnection")!,
@@ -310,6 +360,19 @@ app.MapPost("/api/admin/compress-columnstore", (IBackgroundJobClient jobs) =>
     return Results.Accepted(value: new
     {
         status   = "compress-enqueued",
+        jobId,
+        dashboard = "/hangfire",
+        at       = DateTime.UtcNow
+    });
+}).RequireAuthorization(p => p.RequireRole("Admin", "Staff")).WithTags("Admin");
+
+app.MapPost("/api/admin/data-quality", (IBackgroundJobClient jobs) =>
+{
+    var jobId = jobs.Enqueue<ECommerPipeline.Infrastructure.Etl.DataQualityJob>(
+        j => j.RunAsync(CancellationToken.None));
+    return Results.Accepted(value: new
+    {
+        status   = "dq-enqueued",
         jobId,
         dashboard = "/hangfire",
         at       = DateTime.UtcNow

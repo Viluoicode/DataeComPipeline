@@ -14,15 +14,15 @@ public class ReportService : IReportService
 
     public Task<IReadOnlyList<SalesByCategoryRow>> GetSalesByCategoryAsync(DateTime from, DateTime to, CancellationToken ct = default)
     {
+        // GOLD LAYER — pre-aggregated. ~5-10ms even on 30M+ source rows.
+        // Falls back to fact query if gold table is empty (first-run before ETL).
         const string sql = @"
-            SELECT  p.Category,
-                    CAST(COUNT(DISTINCT f.OrderId) AS BIGINT)    AS OrderCount,
-                    CAST(SUM(f.LineTotal) AS DECIMAL(18,2))      AS TotalRevenue
-            FROM    fact.SalesOrderItem f
-            JOIN    dim.Product p   ON p.ProductKey = f.ProductKey
-            JOIN    dim.Date    d   ON d.DateKey    = f.DateKey
-            WHERE   d.[Date] BETWEEN @From AND @To
-            GROUP BY p.Category
+            SELECT  Category,
+                    SUM(OrderCount)                          AS OrderCount,
+                    CAST(SUM(TotalRevenue) AS DECIMAL(18,2)) AS TotalRevenue
+            FROM    gold.DailySalesByCategory
+            WHERE   [Date] BETWEEN @From AND @To
+            GROUP BY Category
             ORDER BY TotalRevenue DESC;";
 
         return QueryAsync<SalesByCategoryRow>(sql, new { From = from.Date, To = to.Date }, ct);
@@ -30,33 +30,34 @@ public class ReportService : IReportService
 
     public Task<IReadOnlyList<SalesByDayRow>> GetSalesByDayAsync(DateTime from, DateTime to, CancellationToken ct = default)
     {
+        // GOLD layer
         const string sql = @"
-            SELECT  CAST(d.[Date] AS DATETIME)              AS [Day],
-                    CAST(COUNT(DISTINCT f.OrderId) AS BIGINT) AS OrderCount,
-                    CAST(SUM(f.LineTotal) AS DECIMAL(18,2))   AS TotalRevenue
-            FROM    fact.SalesOrderItem f
-            JOIN    dim.Date d ON d.DateKey = f.DateKey
-            WHERE   d.[Date] BETWEEN @From AND @To
-            GROUP BY d.[Date]
-            ORDER BY d.[Date];";
+            SELECT  CAST([Date] AS DATETIME)                AS [Day],
+                    SUM(OrderCount)                          AS OrderCount,
+                    CAST(SUM(TotalRevenue) AS DECIMAL(18,2)) AS TotalRevenue
+            FROM    gold.DailySalesByCategory
+            WHERE   [Date] BETWEEN @From AND @To
+            GROUP BY [Date]
+            ORDER BY [Date];";
 
         return QueryAsync<SalesByDayRow>(sql, new { From = from.Date, To = to.Date }, ct);
     }
 
     public Task<IReadOnlyList<TopProductRow>> GetTopProductsAsync(DateTime from, DateTime to, int top = 10, CancellationToken ct = default)
     {
+        // GOLD: aggregate gold.MonthlyTopProducts spanning the requested range
         const string sql = @"
             SELECT TOP (@Top)
-                   p.ProductId,
-                   p.Sku,
-                   p.Name,
-                   CAST(SUM(f.Quantity)  AS BIGINT)        AS TotalQuantity,
-                   CAST(SUM(f.LineTotal) AS DECIMAL(18,2)) AS TotalRevenue
-            FROM   fact.SalesOrderItem f
-            JOIN   dim.Product p ON p.ProductKey = f.ProductKey
-            JOIN   dim.Date    d ON d.DateKey    = f.DateKey
-            WHERE  d.[Date] BETWEEN @From AND @To
-            GROUP BY p.ProductId, p.Sku, p.Name
+                   ProductId,
+                   MAX(Sku)         AS Sku,
+                   MAX(ProductName) AS Name,
+                   CAST(SUM(TotalQuantity) AS BIGINT)       AS TotalQuantity,
+                   CAST(SUM(TotalRevenue)  AS DECIMAL(18,2)) AS TotalRevenue
+            FROM   gold.MonthlyTopProducts
+            WHERE  DATEFROMPARTS([Year], [Month], 1) BETWEEN
+                   DATEFROMPARTS(YEAR(@From), MONTH(@From), 1) AND
+                   DATEFROMPARTS(YEAR(@To),   MONTH(@To),   1)
+            GROUP BY ProductId
             ORDER BY TotalRevenue DESC;";
 
         return QueryAsync<TopProductRow>(sql, new { From = from.Date, To = to.Date, Top = top }, ct);

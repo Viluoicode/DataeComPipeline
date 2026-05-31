@@ -11,4 +11,7 @@ public class SignalREtlNotifier : IEtlNotifier
 
     public Task NotifyEtlCompletedAsync(EtlCompletedEvent evt, CancellationToken ct = default) =>
         _hub.Clients.All.SendAsync("etl-completed", evt, ct);
+
+    public Task NotifyDataQualityAlertAsync(DataQualityAlertEvent evt, CancellationToken ct = default) =>
+        _hub.Clients.All.SendAsync("dq-alert", evt, ct);
 }

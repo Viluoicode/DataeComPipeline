@@ -60,6 +60,7 @@ public static class DependencyInjection
         services.AddScoped<IEtlPipeline, SalesEtlPipeline>();
         services.AddScoped<EtlJob>();
         services.AddScoped<CompressColumnstoreJob>();
+        services.AddScoped<DataQualityJob>();
 
         // Bootstrap + dev utilities
         services.AddScoped<DatabaseInitializer>();
@@ -99,5 +100,11 @@ public static class DependencyInjection
             "compress-columnstore",
             j => j.RunAsync(CancellationToken.None),
             "0 2 * * *");
+
+        // Data quality checks: every 15 minutes (right after ETL settles)
+        manager.AddOrUpdate<DataQualityJob>(
+            "data-quality",
+            j => j.RunAsync(CancellationToken.None),
+            "2-59/15 * * * *");  // minute 2, 17, 32, 47 — offset from ETL (which runs */5)
     }
 }

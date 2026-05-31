@@ -5,6 +5,7 @@ namespace ECommerPipeline.Application.Common.Interfaces;
 public interface IEtlNotifier
 {
     Task NotifyEtlCompletedAsync(EtlCompletedEvent evt, CancellationToken ct = default);
+    Task NotifyDataQualityAlertAsync(DataQualityAlertEvent evt, CancellationToken ct = default);
 }
 
 public record EtlCompletedEvent(
@@ -12,3 +13,8 @@ public record EtlCompletedEvent(
     long Watermark,
     DateTime CompletedAt,
     long DurationMs);
+
+public record DataQualityAlertEvent(
+    int FailedCount,
+    int CriticalCount,
+    DateTime AlertedAt);
