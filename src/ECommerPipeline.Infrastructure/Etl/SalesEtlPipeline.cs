@@ -437,7 +437,8 @@ public class SalesEtlPipeline : IEtlPipeline
                     OrderDate   DATETIME2 NOT NULL,
                     Quantity    INT NOT NULL,
                     UnitPrice   DECIMAL(18,2) NOT NULL,
-                    LineTotal   DECIMAL(18,2) NOT NULL);", tx, cancellationToken: ct));
+                    LineTotal   DECIMAL(18,2) NOT NULL);",
+                transaction: tx, cancellationToken: ct));
 
             await bulk.WriteToServerAsync(data, ct);
 
@@ -448,7 +449,8 @@ public class SalesEtlPipeline : IEtlPipeline
                 SELECT s.OrderItemId, s.OrderId, s.CustomerId, s.ProductId, s.OrderDate, s.Quantity, s.UnitPrice, s.LineTotal
                 FROM   {stagingTable} s
                 WHERE  NOT EXISTS (SELECT 1 FROM {targetTable} t WHERE t.OrderItemId = s.OrderItemId);
-                DROP TABLE {stagingTable};", tx, cancellationToken: ct));
+                DROP TABLE {stagingTable};",
+                transaction: tx, cancellationToken: ct));
         }
         else
         {
