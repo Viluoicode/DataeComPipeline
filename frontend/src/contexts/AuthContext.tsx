@@ -39,8 +39,20 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 function loadSession(): AuthSession | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) as AuthSession : null
-  } catch { return null }
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    // Validate shape — guards against stale data from the old mock-auth format
+    // (which stored { customerId, fullName, email } without accessToken/user).
+    // A malformed blob would otherwise crash on session.user.role.
+    if (!parsed?.accessToken || !parsed?.user || typeof parsed.user.role === 'undefined') {
+      localStorage.removeItem(STORAGE_KEY)
+      return null
+    }
+    return parsed as AuthSession
+  } catch {
+    localStorage.removeItem(STORAGE_KEY)
+    return null
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
