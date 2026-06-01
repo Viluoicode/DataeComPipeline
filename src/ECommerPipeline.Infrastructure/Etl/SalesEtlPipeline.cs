@@ -222,7 +222,8 @@ public class SalesEtlPipeline : IEtlPipeline
                 CustomerId BIGINT NOT NULL,
                 FullName   NVARCHAR(200) NOT NULL,
                 Email      NVARCHAR(200) NOT NULL,
-                City       NVARCHAR(100) NULL);", cancellationToken: ct));
+                City       NVARCHAR(100) NULL,
+                RowHash    BINARY(32) NULL);", cancellationToken: ct));
 
         var table = new DataTable();
         table.Columns.Add("CustomerId", typeof(long));
@@ -249,8 +250,7 @@ public class SalesEtlPipeline : IEtlPipeline
         // This preserves history: dashboards for past periods show the customer
         // state AT THAT TIME, not the latest state.
         await conn.ExecuteAsync(new CommandDefinition(@"
-            -- Compute hash on staging
-            ALTER TABLE #StageCustomer ADD RowHash BINARY(32);
+            -- Compute hash on staging (RowHash column already exists from CREATE TABLE)
             UPDATE #StageCustomer
             SET RowHash = HASHBYTES('SHA2_256',
                 CONCAT(FullName, '|', Email, '|', ISNULL(City, '')));
@@ -298,7 +298,8 @@ public class SalesEtlPipeline : IEtlPipeline
                 Sku       VARCHAR(50) NOT NULL,
                 Name      NVARCHAR(300) NOT NULL,
                 Category  NVARCHAR(100) NOT NULL,
-                Brand     NVARCHAR(100) NULL);", cancellationToken: ct));
+                Brand     NVARCHAR(100) NULL,
+                RowHash   BINARY(32) NULL);", cancellationToken: ct));
 
         var table = new DataTable();
         table.Columns.Add("ProductId", typeof(long));
@@ -316,9 +317,8 @@ public class SalesEtlPipeline : IEtlPipeline
             await bulk.WriteToServerAsync(table, ct);
         }
 
-        // SCD Type 2 — same pattern as Customer
+        // SCD Type 2 — same pattern as Customer (RowHash column already exists from CREATE TABLE)
         await conn.ExecuteAsync(new CommandDefinition(@"
-            ALTER TABLE #StageProduct ADD RowHash BINARY(32);
             UPDATE #StageProduct
             SET RowHash = HASHBYTES('SHA2_256',
                 CONCAT(Sku, '|', Name, '|', Category, '|', ISNULL(Brand, '')));
