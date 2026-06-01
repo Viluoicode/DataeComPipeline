@@ -421,13 +421,27 @@ public class SalesEtlPipeline : IEtlPipeline
         // overlapping rows we don't want to crash. Skip dupes via NOT EXISTS pattern.
         if (targetTable.StartsWith("bronze.", StringComparison.OrdinalIgnoreCase))
         {
-            // Strategy: stage → INSERT WHERE NOT EXISTS
+            // Stage table is created EXPLICITLY with only the columns we load.
+            // (Can't `SELECT TOP 0 * INTO` from bronze — that copies BronzeKey IDENTITY
+            //  + IngestedAt/SourceSystem which are NOT NULL but lose their DEFAULTs,
+            //  so the bulk copy would fail inserting NULL into them.)
             var stagingTable = $"#stage_{Guid.NewGuid():N}";
             bulk.DestinationTableName = stagingTable;
-            await conn.ExecuteAsync(new CommandDefinition(
-                $"SELECT TOP 0 * INTO {stagingTable} FROM {targetTable};", tx, cancellationToken: ct));
+
+            await conn.ExecuteAsync(new CommandDefinition($@"
+                CREATE TABLE {stagingTable} (
+                    OrderItemId BIGINT NOT NULL,
+                    OrderId     BIGINT NOT NULL,
+                    CustomerId  BIGINT NOT NULL,
+                    ProductId   BIGINT NOT NULL,
+                    OrderDate   DATETIME2 NOT NULL,
+                    Quantity    INT NOT NULL,
+                    UnitPrice   DECIMAL(18,2) NOT NULL,
+                    LineTotal   DECIMAL(18,2) NOT NULL);", tx, cancellationToken: ct));
+
             await bulk.WriteToServerAsync(data, ct);
 
+            // INSERT into bronze (BronzeKey IDENTITY + IngestedAt/SourceSystem DEFAULTs fill themselves)
             await conn.ExecuteAsync(new CommandDefinition($@"
                 INSERT INTO {targetTable}
                     (OrderItemId, OrderId, CustomerId, ProductId, OrderDate, Quantity, UnitPrice, LineTotal)
