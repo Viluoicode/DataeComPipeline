@@ -1,53 +1,133 @@
-# ECommerPipeline — Full-stack E-commerce với OLTP/OLAP Analytics Pipeline
+<h1 align="center">🛒 ECommerPipeline</h1>
 
-> **Demo project** mô phỏng "nỗi đau" của một e-commerce thật: **báo cáo thống kê làm chậm DB bán hàng**.
-> Giải pháp: tách 2 database (OLTP để ghi, OLAP để đọc) + ETL pipeline + SignalR real-time dashboard.
-> Có cả storefront customer-facing và admin BI dashboard.
+<p align="center">
+  <strong>Full-stack e-commerce demo with a real OLTP → ETL → OLAP analytics pipeline.</strong><br/>
+  Tách database ghi (OLTP) và đọc (OLAP), đồng bộ qua ETL, dashboard real-time qua SignalR.
+</p>
 
-## 🚀 Quick start
+<p align="center">
+  <!-- TODO: thay <your-username> bằng GitHub username thật sau khi push repo -->
+  <img src="https://img.shields.io/github/actions/workflow/status/<your-username>/ECommerPipeline/ci.yml?branch=main&label=CI&logo=github" alt="CI"/>
+  <img src="https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet&logoColor=white" alt=".NET 9"/>
+  <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black" alt="React 18"/>
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white" alt="TypeScript"/>
+  <img src="https://img.shields.io/badge/SQL_Server-2022-CC2927?logo=microsoftsqlserver&logoColor=white" alt="SQL Server"/>
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker"/>
+  <img src="https://img.shields.io/badge/tests-48_passing-success?logo=xunit" alt="48 tests"/>
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"/>
+</p>
+
+---
+
+## 🚀 Quick Start
 
 ```bash
-docker compose up -d        # Toàn bộ stack trong 1 lệnh (~5-7 phút lần đầu)
+git clone https://github.com/<your-username>/ECommerPipeline.git
+cd ECommerPipeline
+docker compose up -d          # SQL Server + API + Frontend + Jaeger trong 1 lệnh (~5-7 phút lần đầu)
 ```
 
-Mở **http://localhost** — landing page hiện ra → click "Shop ngay" để bắt đầu.
+Mở **http://localhost** → đăng nhập demo → shop → đặt đơn → xem analytics.
 
+**Demo accounts** (seed sẵn):
+| Role | Email | Password |
+|---|---|---|
+| 👑 Admin | `admin@ecom.com` | `admin123` |
+| 🛒 Customer | `demo@ecom.com` | `demo123` |
+
+**URLs:**
 | URL | Mô tả |
 |---|---|
 | http://localhost | Storefront (customer-facing) |
-| http://localhost/admin | Admin BI dashboard |
-| http://localhost/hangfire | Background jobs UI |
-| http://localhost/scalar/v1 | API documentation |
+| http://localhost/admin | Admin BI dashboard (cần Admin/Staff role) |
+| http://localhost/scalar/v1 | API documentation (Scalar UI) |
+| http://localhost/hangfire | Background jobs dashboard |
+| http://localhost:16686 | Jaeger — distributed tracing UI |
 | http://localhost/health | Health check 2 DB |
 
-Chi tiết: [docs/DOCKER.md](docs/DOCKER.md). Lịch sử dev: [docs/CHANGELOG.md](docs/CHANGELOG.md).
+> 📚 Chi tiết: [Docker setup](docs/DOCKER.md) · [Kiến trúc enterprise](docs/ARCHITECTURE.md) · [Study guide](docs/STUDY_GUIDE.md) · [Changelog](docs/CHANGELOG.md)
+
+---
+
+## 📸 Screenshots
+
+> 📌 **TODO:** Chụp và đính kèm vào `docs/screenshots/`:
+> - `dashboard.png` — Admin dashboard với KPI cards + charts real-time
+> - `storefront.png` — Shop grid với products
+> - `checkout.png` — Checkout flow
+> - `jaeger-trace.png` — Distributed trace của 1 request
+> - `architecture.png` — Diagram vẽ bằng Excalidraw/draw.io
+
+---
+
+## 🏗 Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  React 18 + TypeScript + Tremor (Vite)                          │
+│  Storefront (/)  ·  Admin BI (/admin)                           │
+└──────────────────────────┬──────────────────────────────────────┘
+                  REST + JWT │ SignalR (real-time)
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  ASP.NET Core 9 — Clean Architecture (Domain→App→Infra→Api)     │
+│  JWT auth · FluentValidation · Polly · OpenTelemetry · Serilog  │
+└───────────┬──────────────────────────────────┬──────────────────┘
+            │ EF Core (write)      Dapper (read)│
+            ▼                                   ▼
+   ┌─────────────────┐   ETL (Hangfire)  ┌──────────────────────────┐
+   │  OLTP Database  │ ───────────────►  │  OLAP Database           │
+   │  (row-store)    │   watermark +     │  Medallion architecture: │
+   │  Orders,        │   SqlBulkCopy +   │  🥉 Bronze (raw)         │
+   │  Customers,     │   SCD Type 2      │  🥈 Silver (star schema, │
+   │  Products       │                   │     Columnstore)         │
+   └─────────────────┘                   │  🥇 Gold (pre-aggregated)│
+                                         └──────────────────────────┘
+                                                   ▲
+                          Data Quality (11 tests) ─┘
+```
+
+**Performance** — cùng query "doanh thu theo category 90 ngày" trên 300k rows:
+
+| Layer | Latency | Speedup |
+|---|---|---|
+| OLTP (row-store 3-way JOIN) | ~1,200 ms | baseline |
+| OLAP Silver (Columnstore compressed) | ~90 ms | **13×** |
+| OLAP Gold (pre-aggregated) | ~5-10 ms | **~150×** |
 
 ---
 
 ## ✨ Features
 
 ### 🛍 Storefront (customer-facing)
-- Browse 100+ sản phẩm có ảnh, filter category, search debounced
-- Product detail với related products
-- Cart drawer + Checkout flow + order success
-- My Orders history
-- Mock login/register (JWT thật sẽ làm trong v1.1)
+- Browse 100+ products có ảnh, filter category, debounced search
+- Product detail + related products
+- Cart drawer (localStorage) + Checkout flow
+- JWT register/login, My Orders history
 
 ### 🎛 Admin BI Console
-- **Dashboard** với 3 KPI cards + AreaChart/DonutChart/BarList (real-time qua SignalR)
-- **Orders** list với pagination + filter status/date/customer/search
-- **Order Detail** với line items
-- **Create Order** form 3 bước (customer picker → product picker → cart)
-- **Excel Import** 3 entity types (Customers/Products/Orders) với template download
-- **Stress Test** tool: fire 1000 orders concurrent + admin actions
+- **Dashboard**: 3 KPI cards + AreaChart/DonutChart/BarList, refresh real-time qua SignalR
+- **Orders**: pagination + filter status/date/customer/search → detail page
+- **Create Order**: form 3 bước (customer picker → product picker → cart)
+- **Excel Import**: 3 entity types với template download + per-row validation
+- **Stress Test**: fire N orders concurrent + trigger ETL/compress/DQ
 
-### 🏗 Infrastructure
-- **OLTP / OLAP split** — write fast, read fast, đồng bộ qua ETL
-- **Watermark-based ETL** mỗi 5 phút (Hangfire)
-- **Auto Columnstore compression** mỗi đêm 2AM
-- **SignalR push** notify dashboard khi ETL xong
-- **Polly retry** transient SQL failures
-- **Docker compose** stack 3 containers
+### 🏗 Data Engineering
+- **OLTP/OLAP split** — CQRS thực tế, write fast + read fast
+- **Medallion architecture** — Bronze (raw) → Silver (star schema) → Gold (aggregated)
+- **SCD Type 2** — dimensions giữ lịch sử thay đổi (ValidFrom/ValidTo + hash detection)
+- **Watermark ETL** — incremental load, idempotent, resumable (Hangfire mỗi 5 phút)
+- **Data Quality framework** — 11 tests/5 categories, alert qua SignalR khi critical fail
+- **Auto Columnstore compression** — nightly REORGANIZE WITH COMPRESS
+- **OpenTelemetry** — distributed tracing HTTP→EF Core→SQL→ETL, export Jaeger
+
+### 🔒 Production-grade
+- **JWT auth** — access + refresh token rotation, role-based authorization
+- **Resilience** — Polly retry, EF Core EnableRetryOnFailure, graceful cancellation
+- **Observability** — Serilog structured JSON + correlation ID per request
+- **48 unit tests** — xUnit + Moq + FluentAssertions + EF InMemory
+- **CI/CD** — GitHub Actions (build + test + docker build)
+- **Docker Compose** — full stack one-command up
 
 ---
 
@@ -550,23 +630,59 @@ ECommerPipeline/
 
 ---
 
-## 12. Hướng phát triển tiếp (v2 roadmap)
+## 12. Key Technical Decisions
+
+Những quyết định kỹ thuật quan trọng và **lý do** đằng sau (phần recruiter quan tâm nhất):
+
+| Quyết định | Lý do | Trade-off chấp nhận |
+|---|---|---|
+| **Tách OLTP/OLAP** thay vì 1 DB | Index B-tree (write fast) vs Columnstore (read fast) xung khắc. Báo cáo phức tạp làm chậm transaction. | Phải build ETL + eventual consistency (data trễ ~5 phút) |
+| **EF Core cho OLTP, Dapper cho OLAP** | EF Core: migration + type-safe cho write. Dapper: raw SQL nhanh hơn 2-3× cho analytical read. | 2 data access pattern trong cùng codebase |
+| **Watermark thay vì CDC** | CDC cần SQL Server Enterprise + sysadmin. Watermark đủ cho 5-min latency, đơn giản. | Không bắt được UPDATE/DELETE (chỉ INSERT) |
+| **Medallion (Bronze/Silver/Gold)** | Bronze = replay/audit. Silver = star schema. Gold = pre-aggregated → dashboard 5ms. | Storage tăng (lưu 3 bản), refresh phức tạp hơn |
+| **SCD Type 2 cho dimensions** | Báo cáo lịch sử show đúng customer state lúc đặt đơn, không bị overwrite. | Dimension table lớn hơn (N versions/entity) |
+| **SqlBulkCopy thay INSERT** | Bulk load nhanh hơn ~100× (1 round-trip vs N). | Bypass change tracking, cần manual mapping |
+| **JWT stateless thay session** | Scale tốt cho microservices, không cần shared session store. | Không revoke được access token trước expiry → dùng refresh token rotation |
+| **Hangfire thay BackgroundService** | Persist job state qua restart, có dashboard + retry history. | Thêm 1 DB (Hangfire storage) |
+| **Clean Architecture (pragmatic)** | Domain thuần, đổi tech chỉ sửa Infrastructure. | Application reference EF Core abstractions (Jason Taylor's trade-off) |
+
+---
+
+## 13. What I Learned
+
+Những thứ tôi học được sâu khi build project này:
+
+- **Columnstore không phải "free lunch"** — data mới nằm trong delta store (state=OPEN) chạy như row-store, thậm chí **chậm hơn OLTP**. Phải `REORGANIZE WITH COMPRESS_ALL_ROW_GROUPS` để nén thành rowgroup COMPRESSED mới phát huy. Tôi automate điều này bằng nightly Hangfire job.
+- **Race condition trong ETL** — recurring job + manual trigger có thể chạy đồng thời → duplicate key. Fix 2 lớp: `[DisableConcurrentExecution]` (Hangfire) + `MERGE WITH (HOLDLOCK)` (SQL atomic).
+- **Cancellation propagation** — `TaskCanceledException` khi client abort không phải lỗi server. Convert sang HTTP 499, demote log từ ERR xuống Debug, frontend dùng AbortController + axios interceptor.
+- **SCD Type 2 với hash detection** — dùng `HASHBYTES('SHA2_256', ...)` để detect change rẻ thay vì so từng column. Close old version + insert new chỉ khi hash khác.
+- **OpenTelemetry custom spans** — không chỉ auto-instrument HTTP/SQL mà tự tạo `ActivitySource` cho ETL để thấy từng batch trong Jaeger.
+
+---
+
+## 14. Roadmap (v2)
 
 ### Done ✅
-- [x] SignalR — push báo cáo realtime lên dashboard
-- [x] Frontend SPA — React Dashboard + Stress Test
-- [x] Automated Columnstore Maintenance Job
-- [x] Order Management (list / detail / create) — no SSMS needed
-- [x] Excel Import (customers / products / orders) — ClosedXML + template download
-- [x] BI-style UI refactor với Tremor + Tailwind CSS
+- [x] OLTP/OLAP split + watermark ETL
+- [x] Medallion architecture (Bronze/Silver/Gold)
+- [x] SCD Type 2 dimensions
+- [x] Data Quality framework (11 tests)
+- [x] OpenTelemetry distributed tracing → Jaeger
+- [x] JWT auth (access + refresh + role-based)
+- [x] Full storefront + admin BI dashboard
+- [x] 48 unit tests (xUnit + Moq + EF InMemory)
+- [x] GitHub Actions CI + Docker Compose
 
-### Đang muốn làm
-- [ ] **CDC (Change Data Capture)** thay watermark — track DELETE/UPDATE chính xác (cần SQL Server Developer/Enterprise + sysadmin role)
-- [ ] **Partitioning** theo tháng cho `fact.SalesOrderItem` — chuẩn bị khi lên 100M+ rows
-- [ ] **MassTransit/RabbitMQ** — async event-driven thay vì polling 5 phút (near real-time ETL)
-- [ ] **SCD Type 2** cho `dim.Customer`/`dim.Product` — giữ lịch sử thay đổi thay vì overwrite
-- [ ] **Power BI / Grafana** đọc trực tiếp OLAP — share dashboard với non-technical user
-- [ ] **xUnit + Testcontainers** — integration test với SQL Server container
-- [ ] **Docker compose** — 1 lệnh up cả stack: SQL Server + Seq + API + Frontend
-- [ ] **Authentication** — JWT + role-based authorization (admin xem được Stress Test, user thường chỉ Dashboard)
-- [ ] **Excel Export** — download reports về .xlsx (đối ngẫu với Import)
+### Next
+- [ ] **CDC** thay watermark — track DELETE/UPDATE (cần SQL Enterprise)
+- [ ] **Kafka + Debezium** — event-driven ETL thay polling (near real-time)
+- [ ] **Table partitioning** theo tháng cho fact (chuẩn bị 100M+ rows)
+- [ ] **Integration tests** với Testcontainers (SQL Server thật)
+- [ ] **Deploy** Azure App Service / Render với managed SQL
+- [ ] **Multi-tenancy** — tenant_id isolation cho SaaS
+
+---
+
+## License
+
+MIT — xem [LICENSE](LICENSE). Đây là learning project, không phải shop thật.

@@ -30,9 +30,16 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseSerilog((ctx, lc) =>
 {
     lc.ReadFrom.Configuration(ctx.Configuration)
-      .Enrich.FromLogContext()
-      .Enrich.WithProperty("Application", "ECommerPipeline.Api")
-      .WriteTo.Console();
+      .Enrich.FromLogContext()                          // pulls CorrelationId from LogContext
+      .Enrich.WithProperty("Application", "ECommerPipeline.Api");
+
+    // Production: structured JSON (one object per line) for log aggregators.
+    // Development: human-readable console template.
+    if (ctx.HostingEnvironment.IsProduction())
+        lc.WriteTo.Console(new Serilog.Formatting.Compact.CompactJsonFormatter());
+    else
+        lc.WriteTo.Console(
+            outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {CorrelationId}{NewLine}{Exception}");
 
     var seqUrl = ctx.Configuration["Seq:Url"];
     if (!string.IsNullOrWhiteSpace(seqUrl))
@@ -186,6 +193,9 @@ if (app.Environment.IsDevelopment())
         .WithDefaultHttpClient(ScalarTarget.Http, ScalarClient.Http11));
 }
 
+// Correlation id must run early so every later log line carries it.
+app.UseMiddleware<CorrelationIdMiddleware>();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -200,6 +210,15 @@ app.UseSerilogRequestLogging(opts =>
         return httpCtx.Response.StatusCode >= 500
             ? Serilog.Events.LogEventLevel.Error
             : Serilog.Events.LogEventLevel.Information;
+    };
+
+    // Enrich the request-completion log with useful context
+    opts.EnrichDiagnosticContext = (diagnosticContext, httpCtx) =>
+    {
+        diagnosticContext.Set("RequestHost", httpCtx.Request.Host.Value);
+        diagnosticContext.Set("UserAgent", httpCtx.Request.Headers.UserAgent.ToString());
+        if (httpCtx.Items.TryGetValue("X-Correlation-ID", out var cid))
+            diagnosticContext.Set("CorrelationId", cid?.ToString());
     };
 });
 app.UseCors("Frontend");
