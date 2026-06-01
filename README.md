@@ -359,29 +359,61 @@ npm run dev
 
 ---
 
-## 7. Test như thế nào?
+## 7. Testing
 
-### Cách 1 — Qua UI (khuyến nghị, không cần SSMS)
+### Unit Tests (48 tests, xUnit + Moq + FluentAssertions)
 
-Mở http://localhost:5173, demo end-to-end qua sidebar:
+```bash
+dotnet test                    # chạy tất cả 48 tests
+```
+
+```
+Passed!  - Failed: 0, Passed: 30 - ECommerPipeline.Application.Tests
+Passed!  - Failed: 0, Passed: 18 - ECommerPipeline.Infrastructure.Tests
+```
+
+| Test project | Coverage | Số test |
+|---|---|---|
+| **Application.Tests** | Validators + DTOs (no DB) | 30 |
+| `CreateOrderRequestValidator` | CustomerId, items count, quantity bounds | 7 |
+| `RegisterRequestValidator` + `LoginRequestValidator` | email/password rules | 11 |
+| `PagedResult` | TotalPages ceiling math, divide-by-zero guard | 9 |
+| **Infrastructure.Tests** | Services + ETL logic | 18 |
+| `OrderService` (EF Core InMemory) | total tính từ DB price, product-not-found throws, status filter | 5 |
+| `JwtTokenService` | claims, issuer/audience, refresh randomness, short-secret reject | 4 |
+| `PasswordHashing` (BCrypt) | verify, wrong-password, salt uniqueness | 3 |
+| `DateKeyTransform` (ETL logic) | yyyyMMdd, chronological sort, time-stripped | 6 |
+
+**Stack:** xUnit + Moq + FluentAssertions 6.12 + EF Core InMemory + Coverlet (code coverage).
+**Triết lý:** test **business logic quan trọng** (validation, order total, JWT, ETL transform) — không test getter/setter linh tinh.
+
+Chạy với coverage:
+```bash
+dotnet test --collect:"XPlat Code Coverage"
+```
+
+### CI tự động (GitHub Actions)
+
+Mỗi push/PR vào `main`, [`.github/workflows/ci.yml`](.github/workflows/ci.yml) chạy:
+- **backend**: restore → build (Release) → test với coverage
+- **frontend**: npm ci → `tsc --noEmit` → vite build
+- **docker-build**: build cả 2 image (gated trên backend + frontend pass)
+
+### Manual E2E test — qua UI (không cần SSMS)
+
+Mở http://localhost, login `admin@ecom.com` / `admin123`, demo qua sidebar:
 
 | Bước | Page | Hành động |
 |---|---|---|
-| 1 | **New Order** | Search customer → chọn → add 3-4 products vào cart → Create |
-| 2 | **Orders** | Filter status/date, paginate, click row xem OrderDetail |
-| 3 | **Import Excel** | Download template → điền Excel → upload → xem success/error rows |
+| 1 | **New Order** | Search customer → chọn → add 3-4 products → Create |
+| 2 | **Orders** | Filter status/date, paginate, click row xem detail |
+| 3 | **Import Excel** | Download template → điền → upload → xem success/error rows |
 | 4 | **Stress Test** | Fire 1000 orders → Trigger ETL → Force Compress |
-| 5 | **Dashboard** | SignalR push tự refresh KPIs + 3 charts khi ETL xong |
+| 5 | **Dashboard** | SignalR push tự refresh KPIs + charts khi ETL xong |
 
-### Cách 2 — Qua REST file (cho người thích CLI)
+### Manual API test — qua REST file
 
-Mở [`src/ECommerPipeline.Api/ECommerPipeline.Api.http`](src/ECommerPipeline.Api/ECommerPipeline.Api.http) trong VS Code (cần extension **REST Client** — `humao.rest-client`). Click **Send Request** lần lượt. Flow:
-
-1. POST 3 đơn hàng (ghi OLTP)
-2. POST `/api/admin/trigger-etl` (đẩy dữ liệu sang OLAP ngay)
-3. GET 3 báo cáo (đọc từ OLAP/Columnstore)
-
-Để test lại từ đầu: POST `/api/admin/reset` (hoặc click Reset Data trong Stress Test page).
+Mở [`src/ECommerPipeline.Api/ECommerPipeline.Api.http`](src/ECommerPipeline.Api/ECommerPipeline.Api.http) trong VS Code (extension **REST Client**). Send Request lần lượt: tạo đơn → trigger ETL → đọc báo cáo.
 
 ---
 
@@ -564,49 +596,59 @@ ECommerPipeline/
 │   │
 │   ├── ECommerPipeline.Infrastructure/
 │   │   ├── DependencyInjection.cs
+│   │   ├── Auth/ {JwtTokenService, AuthService, JwtOptions}.cs   ← JWT + BCrypt
 │   │   ├── Initialization/{DatabaseInitializer, ResetService}.cs
 │   │   ├── Persistence/
 │   │   │   ├── Oltp/ {OltpDbContext, Configurations, Migrations}
-│   │   │   └── Olap/ {OlapConnectionFactory, Scripts/OlapSchema.sql}
-│   │   ├── Orders/    OrderService.cs            ← + paged list, detail
-│   │   ├── Customers/ CustomerService.cs         ← search lookup
-│   │   ├── Products/  ProductService.cs          ← search + categories
-│   │   ├── Reports/   ReportService.cs           ← raw SQL với Dapper
-│   │   ├── Import/    ExcelImportService.cs     ← ClosedXML parse + bulk insert
+│   │   │   └── Olap/ {OlapConnectionFactory, Scripts/OlapSchema.sql}  ← Medallion schema
+│   │   ├── Orders/ · Customers/ · Products/ · Reports/   ← services (EF/Dapper)
+│   │   ├── Import/ExcelImportService.cs            ← ClosedXML parse + bulk insert
 │   │   └── Etl/
-│   │       ├── SalesEtlPipeline.cs               ← Extract→Transform→Load
-│   │       ├── EtlJob.cs                         ← + Polly retry
-│   │       └── CompressColumnstoreJob.cs         ← auto-compress 2AM
+│   │       ├── SalesEtlPipeline.cs                 ← Extract→Transform→Load (Bronze/Silver/Gold + SCD2)
+│   │       ├── EtlJob.cs                           ← + Polly retry
+│   │       ├── CompressColumnstoreJob.cs           ← auto-compress 2AM
+│   │       └── DataQualityJob.cs                   ← 11 DQ tests, alert via SignalR
 │   │
 │   └── ECommerPipeline.Api/
-│       ├── Program.cs                            ← minimal API + DI wiring
-│       ├── Hubs/EtlNotificationHub.cs            ← SignalR hub
-│       ├── Middleware/GlobalExceptionHandler.cs
-│       ├── ECommerPipeline.Api.http              ← test flow đầy đủ
+│       ├── Program.cs                              ← minimal API + JWT + OpenTelemetry + DI
+│       ├── Hubs/{EtlNotificationHub, SignalREtlNotifier}.cs   ← SignalR
+│       ├── Middleware/{GlobalExceptionHandler, CorrelationIdMiddleware}.cs
+│       ├── Dockerfile                              ← multi-stage build
+│       ├── ECommerPipeline.Api.http
 │       └── appsettings.json
 │
-├── frontend/                                     ← React SPA (Vite + TypeScript + Tremor)
-│   ├── src/
-│   │   ├── App.tsx                               ← React Router routes
-│   │   ├── components/
-│   │   │   ├── AppLayout.tsx                     ← Sidebar BI-tool layout
-│   │   │   └── DateInput.tsx                     ← Native date input theo theme Tremor
-│   │   ├── pages/
-│   │   │   ├── Dashboard.tsx                     ← Tremor: Card/Metric/AreaChart/DonutChart/BarList
-│   │   │   ├── OrdersList.tsx                    ← Paginated table + filter
-│   │   │   ├── OrderDetail.tsx                   ← Line items + customer info
-│   │   │   ├── CreateOrder.tsx                   ← 3-step form (customer/products/cart)
-│   │   │   ├── ImportPage.tsx                    ← Excel upload với 3 tabs
-│   │   │   └── StressTest.tsx                    ← Bulk-fire orders + admin
-│   │   ├── hooks/useEtlNotifications.ts          ← SignalR client (StrictMode-safe)
-│   │   ├── api/{client, reports, orders, lookups, imports}.ts ← Axios calls
-│   │   ├── types/api.ts                          ← DTOs khớp backend
-│   │   └── index.css                             ← @tailwind directives
-│   ├── tailwind.config.js                        ← Tremor color/shadow tokens
-│   ├── postcss.config.js
-│   ├── package.json
-│   └── vite.config.ts                            ← proxy /api + /hub to :5193
+├── tests/                                          ← 48 unit tests
+│   ├── ECommerPipeline.Application.Tests/          ← validators + DTOs (30 tests)
+│   │   ├── Orders/CreateOrderRequestValidatorTests.cs
+│   │   ├── Auth/RegisterRequestValidatorTests.cs
+│   │   └── Common/PagedResultTests.cs
+│   └── ECommerPipeline.Infrastructure.Tests/       ← services + ETL (18 tests)
+│       ├── Orders/OrderServiceTests.cs             ← EF Core InMemory
+│       ├── Auth/{JwtTokenService, PasswordHashing}Tests.cs
+│       └── Etl/DateKeyTransformTests.cs
 │
+├── frontend/                                       ← React SPA (Vite + TypeScript + Tremor)
+│   ├── src/
+│   │   ├── App.tsx                                 ← React Router + ProtectedRoute
+│   │   ├── contexts/{AuthContext, CartContext}.tsx ← JWT session + cart (localStorage)
+│   │   ├── components/{AppLayout, PublicLayout, CartDrawer, ProtectedRoute, ...}.tsx
+│   │   ├── pages/                                  ← admin: Dashboard/Orders/Create/Import/Stress
+│   │   │   └── public/                             ← storefront: Landing/Shop/Checkout/Login/...
+│   │   ├── hooks/useEtlNotifications.ts            ← SignalR client (StrictMode-safe)
+│   │   ├── api/{client, auth, reports, orders, lookups, imports}.ts
+│   │   └── lib/format.ts
+│   ├── Dockerfile + nginx.conf                     ← Vite build → nginx + reverse proxy
+│   ├── tailwind.config.js · vite.config.ts
+│   └── package.json
+│
+├── docs/
+│   ├── ARCHITECTURE.md                             ← enterprise patterns (SCD2/Medallion/DQ/OTel)
+│   ├── STUDY_GUIDE.md                              ← 10-chapter deep-dive cho phỏng vấn
+│   ├── DOCKER.md  ·  CHANGELOG.md
+│
+├── .github/workflows/ci.yml                        ← GitHub Actions: build + test + docker
+├── docker-compose.yml                              ← SQL + API + Frontend + Jaeger
+├── LICENSE (MIT)
 └── ECommerPipeline.sln
 ```
 
