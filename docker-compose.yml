@@ -90,7 +90,7 @@ services:
   # Open http://localhost:16686 to explore traces (request → DB → ETL).
   # NOT for production — use dedicated tempo/cassandra backend instead.
   jaeger:
-    image: jaegertracing/all-in-one:1.62
+    image: jaegertracing/all-in-one:1.62.0
     container_name: ecom-jaeger
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
