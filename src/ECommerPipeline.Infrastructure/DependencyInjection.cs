@@ -88,23 +88,21 @@ public static class DependencyInjection
     public static void RegisterRecurringJobs(IServiceProvider sp)
     {
         var manager = sp.GetRequiredService<IRecurringJobManager>();
+        var config  = sp.GetRequiredService<IConfiguration>();
 
-        // ETL: every 5 minutes
+        // Cron schedules are config-driven so constrained hosts (Azure F1 free,
+        // 60 CPU-min/day) can run jobs sparsely. Defaults suit local/Docker.
+        var etlCron      = config["Jobs:EtlCron"]      ?? "*/5 * * * *";       // every 5 min
+        var compressCron = config["Jobs:CompressCron"] ?? "0 2 * * *";          // 2 AM daily
+        var dqCron       = config["Jobs:DataQualityCron"] ?? "2-59/15 * * * *"; // every 15 min, offset
+
         manager.AddOrUpdate<EtlJob>(
-            "sales-etl",
-            j => j.RunAsync(CancellationToken.None),
-            "*/5 * * * *");
+            "sales-etl", j => j.RunAsync(CancellationToken.None), etlCron);
 
-        // Columnstore maintenance: every night at 02:00 UTC
         manager.AddOrUpdate<CompressColumnstoreJob>(
-            "compress-columnstore",
-            j => j.RunAsync(CancellationToken.None),
-            "0 2 * * *");
+            "compress-columnstore", j => j.RunAsync(CancellationToken.None), compressCron);
 
-        // Data quality checks: every 15 minutes (right after ETL settles)
         manager.AddOrUpdate<DataQualityJob>(
-            "data-quality",
-            j => j.RunAsync(CancellationToken.None),
-            "2-59/15 * * * *");  // minute 2, 17, 32, 47 — offset from ETL (which runs */5)
+            "data-quality", j => j.RunAsync(CancellationToken.None), dqCron);
     }
 }

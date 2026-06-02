@@ -223,6 +223,12 @@ app.UseSerilogRequestLogging(opts =>
 });
 app.UseCors("Frontend");
 
+// Serve the built React SPA from wwwroot when present (single-deployment mode,
+// e.g. Azure App Service serving both API + frontend). Locally / in Docker the
+// frontend is served by Vite / nginx and wwwroot is empty, so these are no-ops.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.MapHealthChecks("/health");
 app.MapHub<EtlNotificationHub>("/hub/etl");
 
@@ -437,5 +443,11 @@ app.MapGet("/api/import/template/{kind}", async (string kind, IImportService svc
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         $"{template}-template.xlsx");
 }).WithTags("Import");
+
+// SPA fallback — any unmatched non-API route returns index.html so client-side
+// routing (React Router) works on refresh/deep-link. Only active when wwwroot
+// has an index.html (single-deployment mode). API routes above match first.
+if (File.Exists(Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "index.html")))
+    app.MapFallbackToFile("index.html");
 
 app.Run();

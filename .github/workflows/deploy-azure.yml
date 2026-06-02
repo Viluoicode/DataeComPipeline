@@ -1,0 +1,52 @@
+name: Deploy to Azure
+
+# Manual trigger — deploy on demand (avoids burning F1 quota on every push).
+on:
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: ecompipeline-api      # ← đổi thành tên App Service của bạn
+  DOTNET_VERSION: 9.0.x
+  NODE_VERSION: 20
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ----- Build frontend → copy into API wwwroot -----
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: |
+          npm ci --legacy-peer-deps
+          npm run build
+
+      - name: Copy frontend build into API wwwroot
+        run: |
+          mkdir -p src/ECommerPipeline.Api/wwwroot
+          cp -r frontend/dist/* src/ECommerPipeline.Api/wwwroot/
+
+      # ----- Build + publish .NET API -----
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Publish API
+        run: dotnet publish src/ECommerPipeline.Api/ECommerPipeline.Api.csproj -c Release -o ./publish
+
+      # ----- Deploy to Azure App Service -----
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ./publish

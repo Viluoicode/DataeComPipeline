@@ -3,6 +3,9 @@ bin/
 obj/
 out/
 *.user
+
+# Frontend build copied into API wwwroot during Azure deploy (generated)
+src/ECommerPipeline.Api/wwwroot/
 *.suo
 *.userosscache
 *.sln.docstates

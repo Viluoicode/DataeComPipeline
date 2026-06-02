@@ -31,7 +31,14 @@ public class DatabaseInitializer
 
     public async Task InitializeAsync(CancellationToken ct = default)
     {
-        await EnsureDatabasesExistAsync(ct);
+        // Azure SQL doesn't allow CREATE DATABASE from app code — the DB is
+        // provisioned via the portal. Set Database:AutoCreate=false there.
+        // Locally / Docker (default true) the app creates the 3 databases itself.
+        if (_config.GetValue("Database:AutoCreate", true))
+            await EnsureDatabasesExistAsync(ct);
+        else
+            _logger.LogInformation("Database:AutoCreate=false — skipping CREATE DATABASE (Azure SQL mode).");
+
         await ApplyOltpMigrationsAsync(ct);
         await ApplyOlapSchemaAsync(ct);
         await SeedAsync(ct);
