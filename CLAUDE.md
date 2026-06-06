@@ -6,6 +6,8 @@ High-level index for the ECommerPipeline codebase. Detailed technical docs live 
 
 ECommerPipeline is a full-stack e-commerce app that demonstrates an OLTP → ETL → OLAP data pipeline. Orders are written to a row-store OLTP database (EF Core), an incremental ETL job (Hangfire) syncs them into a Columnstore OLAP database structured as a Medallion architecture (Bronze/Silver/Gold) with SCD Type 2 dimensions, and a React admin dashboard reads pre-aggregated analytics in real time (SignalR). A customer-facing storefront sits on top of the same backend.
 
+An **AI Data Analyst** service (`ai-analyst/`, separate .NET 10 service) sits on top of the Gold layer as a natural-language → SQL query layer: it turns VN/EN questions into safe, read-only SQL (T-SQL AST validation + whitelist + a `analyst_ro` least-privilege DB principal) and runs them against the Gold tables. It is wired into the root `docker-compose.yml` as `analyst-api` (port 8090). See `ai-analyst/CLAUDE.md` for its internals; integration details in `docs/AI_ANALYST_INTEGRATION.md`.
+
 ## 2. Tech Stack
 
 - **Backend:** ASP.NET Core 9 (minimal API), C# 13, Clean Architecture (Domain/Application/Infrastructure/Api)

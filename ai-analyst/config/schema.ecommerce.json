@@ -1,0 +1,84 @@
+{
+  "name": "ecommerce-gold",
+  "description": "Gold-layer pre-aggregated tables of the ECommerPipeline e-commerce data platform (OLAP database ECommerPipeline_Olap). These are business-ready analytics tables refreshed by the ETL pipeline from the Silver star schema. All monetary values are in Vietnamese Dong (VND). Use these for sales analytics, top products, and customer lifetime value questions.",
+  "databaseName": "ECommerPipeline_Olap",
+  "defaultSchema": "gold",
+  "dialect": "TSql",
+  "maxRows": 1000,
+  "queryTimeoutSeconds": 30,
+  "tables": [
+    {
+      "schema": "gold",
+      "name": "DailySalesByCategory",
+      "grain": "One row per (date, product category). Pre-aggregated daily sales. Sum across rows to roll up to month/quarter/year or across categories.",
+      "columns": [
+        { "name": "Date",          "type": "date",          "description": "Calendar day of the sales. Filter or group by this for time-series." },
+        { "name": "Category",      "type": "nvarchar(100)", "description": "Product category, e.g. 'Electronics', 'Footwear', 'Apparel', 'Home', 'Books', 'Sports', 'Beauty', 'Grocery'." },
+        { "name": "OrderCount",    "type": "bigint",        "description": "Number of distinct orders that day in that category." },
+        { "name": "ItemCount",     "type": "bigint",        "description": "Number of order-line items that day in that category." },
+        { "name": "TotalRevenue",  "type": "decimal(18,2)", "description": "Total revenue (VND) that day in that category. Sum this for revenue questions." },
+        { "name": "AvgOrderValue", "type": "decimal(18,2)", "description": "Average order value (VND) = TotalRevenue / OrderCount for that day+category." },
+        { "name": "RefreshedAt",   "type": "datetime2",     "description": "When the ETL last refreshed this row (metadata, rarely queried)." }
+      ]
+    },
+    {
+      "schema": "gold",
+      "name": "MonthlyTopProducts",
+      "grain": "One row per (year, month, product). Top 50 products per month ranked by revenue.",
+      "columns": [
+        { "name": "Year",          "type": "smallint",      "description": "Calendar year, e.g. 2026." },
+        { "name": "Month",         "type": "tinyint",       "description": "Month number 1-12." },
+        { "name": "ProductId",     "type": "bigint",        "description": "Business product id (from OLTP)." },
+        { "name": "Sku",           "type": "varchar(50)",   "description": "Product SKU code." },
+        { "name": "ProductName",   "type": "nvarchar(300)", "description": "Product display name." },
+        { "name": "Category",      "type": "nvarchar(100)", "description": "Product category." },
+        { "name": "TotalQuantity", "type": "bigint",        "description": "Units sold of this product that month." },
+        { "name": "TotalRevenue",  "type": "decimal(18,2)", "description": "Revenue (VND) of this product that month." },
+        { "name": "RankInMonth",   "type": "int",           "description": "Revenue rank within the month (1 = best seller). Filter RankInMonth <= N for top-N." },
+        { "name": "RefreshedAt",   "type": "datetime2",     "description": "ETL refresh metadata." }
+      ]
+    },
+    {
+      "schema": "gold",
+      "name": "CustomerLifetimeValue",
+      "grain": "One row per customer. Snapshot of lifetime spending + recency.",
+      "columns": [
+        { "name": "CustomerId",        "type": "bigint",        "description": "Business customer id (from OLTP)." },
+        { "name": "FirstOrderDate",    "type": "date",          "description": "Date of the customer's first order." },
+        { "name": "LastOrderDate",     "type": "date",          "description": "Date of the customer's most recent order." },
+        { "name": "TotalOrders",       "type": "bigint",        "description": "Lifetime number of distinct orders." },
+        { "name": "TotalRevenue",      "type": "decimal(18,2)", "description": "Lifetime revenue (VND) from this customer. Sort DESC for highest-value customers." },
+        { "name": "AvgOrderValue",     "type": "decimal(18,2)", "description": "Average order value (VND) over the customer's lifetime." },
+        { "name": "DaysSinceLastOrder","type": "int",           "description": "Days between the last order and today. High = churned/at-risk." },
+        { "name": "RefreshedAt",       "type": "datetime2",     "description": "ETL refresh metadata." }
+      ]
+    }
+  ],
+  "relationships": [],
+  "fewShot": [
+    {
+      "question": "Tổng doanh thu năm 2026 là bao nhiêu?",
+      "sql": "SELECT TOP 1000 SUM(TotalRevenue) AS TotalRevenue FROM gold.DailySalesByCategory WHERE YEAR([Date]) = 2026;"
+    },
+    {
+      "question": "Doanh thu theo category, sắp xếp giảm dần",
+      "sql": "SELECT TOP 1000 Category, SUM(TotalRevenue) AS Revenue FROM gold.DailySalesByCategory GROUP BY Category ORDER BY Revenue DESC;"
+    },
+    {
+      "question": "Top 10 sản phẩm bán chạy nhất tháng 5 năm 2026",
+      "sql": "SELECT TOP 10 ProductName, TotalQuantity, TotalRevenue FROM gold.MonthlyTopProducts WHERE [Year] = 2026 AND [Month] = 5 AND RankInMonth <= 10 ORDER BY RankInMonth;"
+    },
+    {
+      "question": "Which customers have the highest lifetime value?",
+      "sql": "SELECT TOP 10 CustomerId, TotalOrders, TotalRevenue, AvgOrderValue FROM gold.CustomerLifetimeValue ORDER BY TotalRevenue DESC;"
+    },
+    {
+      "question": "Có bao nhiêu khách hàng đã không mua hàng trong hơn 60 ngày?",
+      "sql": "SELECT TOP 1000 COUNT(*) AS ChurnedCustomers FROM gold.CustomerLifetimeValue WHERE DaysSinceLastOrder > 60;"
+    },
+    {
+      "question": "Daily revenue trend for category Electronics",
+      "sql": "SELECT TOP 1000 [Date], SUM(TotalRevenue) AS Revenue FROM gold.DailySalesByCategory WHERE Category = N'Electronics' GROUP BY [Date] ORDER BY [Date];"
+    }
+  ]
+}

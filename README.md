@@ -37,7 +37,14 @@
    │ Orders,         │  watermark +    │  🥉 Bronze → 🥈 Silver   │
    │ Customers,      │  SqlBulkCopy +  │  (Columnstore) → 🥇 Gold │
    │ Products        │  SCD Type 2     │  + Data Quality (11 tests)│
-   └─────────────────┘                 └──────────────────────────┘
+   └─────────────────┘                 └────────────┬─────────────┘
+                                       NL→SQL (read) │ analyst_ro
+                                                    ▼
+                              ┌──────────────────────────────────────┐
+                              │  AI Data Analyst (.NET 10, :8090)     │
+                              │  VN/EN question → AST-validated SELECT │
+                              │  on Gold → rows + NL summary           │
+                              └──────────────────────────────────────┘
 ```
 
 > **Vì sao tách OLTP/OLAP?** Báo cáo phân tích phức tạp (JOIN/GROUP BY trên triệu rows) làm chậm DB bán hàng. Tách 2 store: OLTP dùng B-tree index (ghi nhanh), OLAP dùng Columnstore (đọc nhanh), đồng bộ qua ETL. Đây là **CQRS thực tế**.
@@ -61,7 +68,7 @@ Mở **http://localhost** → login → shop → đặt đơn → xem analytics.
 | 👑 Admin | `admin@ecom.com` | `admin123` |
 | 🛒 Customer | `demo@ecom.com` | `demo123` |
 
-**URLs:** `/` storefront · `/admin` dashboard · `/scalar/v1` API docs · `/hangfire` jobs · `localhost:16686` Jaeger tracing
+**URLs:** `/` storefront · `/admin` dashboard · `/scalar/v1` API docs · `/hangfire` jobs · `localhost:16686` Jaeger tracing · **`localhost:8090` AI Data Analyst (NL→SQL)**
 
 > Local dev (hot reload): `dotnet run --project src/ECommerPipeline.Api` + `cd frontend && npm run dev` → http://localhost:5173
 
@@ -72,6 +79,7 @@ Mở **http://localhost** → login → shop → đặt đơn → xem analytics.
 - **🛍 Storefront** — browse 100+ products, cart, checkout, order history, JWT login/register
 - **🎛 Admin BI** — dashboard (KPI + charts real-time qua SignalR), orders CRUD + filter, Excel import, stress-test tool
 - **🏗 Data Engineering** — Medallion (Bronze/Silver/Gold), SCD Type 2 dimensions, watermark ETL, 11 data-quality tests, auto Columnstore compression, OpenTelemetry tracing
+- **🤖 AI Data Analyst** — natural-language (VN/EN) → safe read-only SQL on the Gold layer; T-SQL AST validation + schema whitelist + least-privilege DB principal (`ai-analyst/`, port 8090)
 - **🔒 Production-grade** — JWT (access + refresh), Polly retry, structured logging + correlation ID, 48 unit tests, GitHub Actions CI
 
 ---
@@ -121,6 +129,7 @@ CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): build + test + dock
 | [STUDY_GUIDE.md](docs/STUDY_GUIDE.md) | Deep-dive 10 tech stack (giải thích + Q&A phỏng vấn + self-test) |
 | [DOCKER.md](docs/DOCKER.md) | Docker quickstart + troubleshooting |
 | [DEPLOY_AZURE.md](docs/DEPLOY_AZURE.md) | Deploy lên Azure free tier (App Service + Azure SQL) |
+| [AI_ANALYST_INTEGRATION.md](docs/AI_ANALYST_INTEGRATION.md) | NL→SQL layer (`ai-analyst/`): schema whitelist, read-only principal, docker wiring, safety model |
 | [CHANGELOG.md](docs/CHANGELOG.md) | Hành trình phát triển theo phase + metrics |
 
 ---
