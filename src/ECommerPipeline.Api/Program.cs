@@ -53,6 +53,15 @@ builder.Services.AddOpenApi();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IEtlNotifier, SignalREtlNotifier>();
 
+// HttpClient to the AI Data Analyst service (NL→SQL on the Gold layer).
+// The admin Chat UI calls our /api/ask, which proxies to the analyst — so the
+// analyst stays internal (not exposed to the browser) and inherits our auth.
+builder.Services.AddHttpClient("analyst", c =>
+{
+    c.BaseAddress = new Uri(builder.Configuration["Analyst:BaseUrl"] ?? "http://localhost:8090");
+    c.Timeout = TimeSpan.FromSeconds(60);
+});
+
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
@@ -363,6 +372,39 @@ app.MapGet("/api/reports/top-products",
    .WithTags("Reports");
 
 // ============================================================
+//  AI Data Analyst — NL→SQL proxy (admin chat assistant)
+//  Forwards the question to the internal ai-analyst service, which generates
+//  AST-validated read-only SQL on the Gold layer and returns rows + summary.
+//  Keeping it server-to-server means the analyst is never exposed to the
+//  browser and inherits this API's JWT auth + correlation id.
+// ============================================================
+app.MapPost("/api/ask", async (
+        AskRequest req,
+        IHttpClientFactory factory,
+        ILogger<Program> logger,
+        CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(req.Question))
+        return Results.BadRequest(new { error = "Question is required." });
+
+    var client = factory.CreateClient("analyst");
+    try
+    {
+        var resp = await client.PostAsJsonAsync("/ask",
+            new { question = req.Question, includeSummary = req.IncludeSummary ?? true }, ct);
+        var json = await resp.Content.ReadAsStringAsync(ct);
+        return Results.Content(json, "application/json", statusCode: (int)resp.StatusCode);
+    }
+    catch (HttpRequestException ex)
+    {
+        logger.LogError(ex, "AI Analyst service unreachable");
+        return Results.Problem(
+            "AI Analyst service is unavailable. Ensure the analyst-api container is running.",
+            statusCode: 503);
+    }
+}).RequireAuthorization(p => p.RequireRole("Admin", "Staff")).WithTags("AI Analyst");
+
+// ============================================================
 //  Admin — dev helpers (trigger ETL ngay, reset data)
 // ============================================================
 app.MapPost("/api/admin/trigger-etl", (IBackgroundJobClient jobs) =>
@@ -451,3 +493,6 @@ if (File.Exists(Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "index.ht
     app.MapFallbackToFile("index.html");
 
 app.Run();
+
+// Request body for the AI Analyst proxy endpoint (/api/ask).
+public sealed record AskRequest(string Question, bool? IncludeSummary);

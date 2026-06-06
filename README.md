@@ -79,7 +79,7 @@ Mở **http://localhost** → login → shop → đặt đơn → xem analytics.
 - **🛍 Storefront** — browse 100+ products, cart, checkout, order history, JWT login/register
 - **🎛 Admin BI** — dashboard (KPI + charts real-time qua SignalR), orders CRUD + filter, Excel import, stress-test tool
 - **🏗 Data Engineering** — Medallion (Bronze/Silver/Gold), SCD Type 2 dimensions, watermark ETL, 11 data-quality tests, auto Columnstore compression, OpenTelemetry tracing
-- **🤖 AI Data Analyst** — natural-language (VN/EN) → safe read-only SQL on the Gold layer; T-SQL AST validation + schema whitelist + least-privilege DB principal (`ai-analyst/`, port 8090)
+- **🤖 AI Data Analyst** — "Ask Data" chat ngay trong Admin (`/admin/ask`): câu hỏi NL (VN/EN) → safe read-only SQL trên Gold layer; T-SQL AST validation + schema whitelist + least-privilege DB principal (`ai-analyst/`)
 - **🔒 Production-grade** — JWT (access + refresh), Polly retry, structured logging + correlation ID, 48 unit tests, GitHub Actions CI
 
 ---

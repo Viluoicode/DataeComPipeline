@@ -6,11 +6,13 @@ import {
   BoltIcon,
   ArrowUpTrayIcon,
   ArrowTopRightOnSquareIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
 
 const nav = [
   { to: '/admin',            label: 'Dashboard',     icon: ChartBarSquareIcon, end: true },
+  { to: '/admin/ask',        label: 'Ask Data (AI)', icon: SparklesIcon,       end: false },
   { to: '/admin/orders',     label: 'Orders',        icon: ShoppingCartIcon,   end: false },
   { to: '/admin/orders/new', label: 'New Order',     icon: PlusCircleIcon,     end: false },
   { to: '/admin/import',     label: 'Import Excel',  icon: ArrowUpTrayIcon,    end: false },

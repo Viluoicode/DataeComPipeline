@@ -9,6 +9,21 @@ Source → [Pipeline: Bronze → Silver → Gold] → AI Data Analyst → user a
 
 The pipeline **produces** clean Gold tables; the Analyst **unlocks** them for people who don't write SQL. Both read the same `gold` schema — complementary, not replacing.
 
+## Unified UI — the "Ask Data" chat in the Admin dashboard
+
+Rather than sending users to a separate port, the Analyst is surfaced **inside the React Admin** as a chat assistant:
+
+```
+React Admin  /admin/ask  ──POST /api/ask──►  ECommerPipeline.Api (.NET 9)
+ (chat UI, JWT)                                   │  proxy (HttpClient "analyst", Admin/Staff only)
+                                                  ▼
+                                          analyst-api (internal :8080)  ──analyst_ro──►  gold.*
+```
+
+- **Frontend:** `frontend/src/pages/AskData.tsx` — chat bubbles, suggested questions, NL summary, result table, collapsible generated SQL. Linked in the sidebar as **"Ask Data (AI)"**.
+- **Backend proxy:** `POST /api/ask` in `Program.cs` (`RequireRole("Admin","Staff")`) forwards to the analyst via the `"analyst"` `HttpClient` (`Analyst:BaseUrl`, default `http://localhost:8090` local / `http://analyst-api:8080` in Docker).
+- **Why proxy, not call analyst directly from the browser:** the analyst stays internal (never CORS-exposed), and every question inherits this API's JWT auth + correlation-id logging. The strong NL→SQL safety (AST validation, `analyst_ro`) is reused as-is — not re-implemented.
+
 ## What was integrated (handoff §8)
 
 1. **Copied** the Analyst project into `ai-analyst/` (own .NET 10 solution, src/tests/db/Dockerfile/eval). It is NOT part of `ECommerPipeline.sln` — it builds independently via its own Dockerfile.

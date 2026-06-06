@@ -63,6 +63,8 @@ services:
       Jwt__Audience:  "ECommerPipeline.Client"
       # OpenTelemetry — export traces to Jaeger via OTLP gRPC
       Otel__Endpoint: "http://jaeger:4317"
+      # AI Analyst service (internal) — /api/ask proxies here
+      Analyst__BaseUrl: "http://analyst-api:8080"
     ports:
       # Direct API access for debugging (frontend proxies via nginx anyway)
       - "5193:8080"

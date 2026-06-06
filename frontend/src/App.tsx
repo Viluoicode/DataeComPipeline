@@ -24,6 +24,7 @@ import { CreateOrder } from './pages/CreateOrder'
 import { OrderDetail } from './pages/OrderDetail'
 import { ImportPage } from './pages/ImportPage'
 import { StressTest } from './pages/StressTest'
+import { AskData } from './pages/AskData'
 
 export default function App() {
   return (
@@ -61,6 +62,7 @@ export default function App() {
                 <Route path="orders"        element={<OrdersList />} />
                 <Route path="orders/new"    element={<CreateOrder />} />
                 <Route path="orders/:id"    element={<OrderDetail />} />
+                <Route path="ask"           element={<AskData />} />
                 <Route path="import"        element={<ImportPage />} />
                 <Route path="stress"        element={<StressTest />} />
               </Route>
