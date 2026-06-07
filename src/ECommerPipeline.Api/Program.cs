@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
+using System.Threading.RateLimiting;
 using ECommerPipeline.Api.Hubs;
 using ECommerPipeline.Api.Middleware;
 using ECommerPipeline.Application.Auth;
@@ -19,6 +21,7 @@ using ECommerPipeline.Infrastructure.Initialization;
 using FluentValidation;
 using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -61,6 +64,39 @@ builder.Services.AddHttpClient("analyst", c =>
     c.BaseAddress = new Uri(builder.Configuration["Analyst:BaseUrl"] ?? "http://localhost:8090");
     c.Timeout = TimeSpan.FromSeconds(60);
 });
+
+// In-memory cache for AI answers (skip repeat LLM calls for identical questions).
+builder.Services.AddMemoryCache();
+
+// Rate-limit the AI endpoint PER authenticated user: LLM calls cost money and are
+// abusable. 15 questions / minute / user; excess gets HTTP 429.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("ai-ask", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                          ?? httpContext.User.FindFirstValue("sub")
+                          ?? httpContext.User.FindFirstValue(ClaimTypes.Email)
+                          ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                          ?? "anon",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 15,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+});
+
+// Fail-fast: never boot in Production with the well-known dev JWT secret or a weak one.
+var configuredJwtSecret = builder.Configuration["Jwt:Secret"] ?? "";
+if (builder.Environment.IsProduction() &&
+    (configuredJwtSecret.Contains("dev-only-secret", StringComparison.Ordinal) || configuredJwtSecret.Length < 32))
+{
+    throw new InvalidOperationException(
+        "Jwt:Secret is missing or insecure for Production. Provide a 32+ char random secret via " +
+        "the Jwt__Secret environment variable (do not use the bundled dev default).");
+}
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
@@ -207,6 +243,7 @@ app.UseMiddleware<CorrelationIdMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.UseExceptionHandler();
 app.UseSerilogRequestLogging(opts =>
@@ -381,28 +418,68 @@ app.MapGet("/api/reports/top-products",
 app.MapPost("/api/ask", async (
         AskRequest req,
         IHttpClientFactory factory,
+        IMemoryCache cache,
         ILogger<Program> logger,
+        HttpContext http,
         CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(req.Question))
         return Results.BadRequest(new { error = "Question is required." });
 
+    var user = http.User.FindFirstValue(ClaimTypes.Email)
+               ?? http.User.FindFirstValue(ClaimTypes.Name)
+               ?? http.User.FindFirstValue(ClaimTypes.NameIdentifier)
+               ?? "unknown";
+    var includeSummary = req.IncludeSummary ?? true;
+    var cacheKey = $"ask::{includeSummary}::{req.Question.Trim().ToLowerInvariant()}";
+
+    // Cache hit — return without calling the LLM at all.
+    if (cache.TryGetValue(cacheKey, out string? cachedJson) && cachedJson is not null)
+    {
+        logger.LogInformation("AI ask (cache hit) by {User}: {Question}", user, req.Question);
+        return Results.Content(cachedJson, "application/json");
+    }
+
+    var sw = System.Diagnostics.Stopwatch.StartNew();
     var client = factory.CreateClient("analyst");
     try
     {
         var resp = await client.PostAsJsonAsync("/ask",
-            new { question = req.Question, includeSummary = req.IncludeSummary ?? true }, ct);
+            new { question = req.Question, includeSummary }, ct);
         var json = await resp.Content.ReadAsStringAsync(ct);
+        sw.Stop();
+
+        // Audit: who asked what, the outcome (Answered/Refused), and latency.
+        var status = "unknown";
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("status", out var s))
+                status = s.GetString() ?? "unknown";
+        }
+        catch { /* non-JSON error body — leave status unknown */ }
+
+        logger.LogInformation(
+            "AI ask by {User}: {Question} -> {Status} in {ElapsedMs}ms",
+            user, req.Question, status, sw.ElapsedMilliseconds);
+
+        // Cache only successful answers (never cache a transient failure).
+        if (resp.IsSuccessStatusCode)
+            cache.Set(cacheKey, json, TimeSpan.FromMinutes(10));
+
         return Results.Content(json, "application/json", statusCode: (int)resp.StatusCode);
     }
     catch (HttpRequestException ex)
     {
-        logger.LogError(ex, "AI Analyst service unreachable");
+        logger.LogError(ex, "AI Analyst service unreachable (asked by {User})", user);
         return Results.Problem(
-            "AI Analyst service is unavailable. Ensure the analyst-api container is running.",
+            "AI Analyst service is unavailable. Ensure the analyst-api service is running.",
             statusCode: 503);
     }
-}).RequireAuthorization(p => p.RequireRole("Admin", "Staff")).WithTags("AI Analyst");
+})
+.RequireAuthorization(p => p.RequireRole("Admin", "Staff"))
+.RequireRateLimiting("ai-ask")
+.WithTags("AI Analyst");
 
 // ============================================================
 //  Admin — dev helpers (trigger ETL ngay, reset data)

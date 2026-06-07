@@ -62,6 +62,16 @@ Four layers of defense-in-depth (detail: `ai-analyst/.claude/docs/safety_validat
 
 Fail-closed: nothing executes unless the validator passes. When changing the validator, add a test in `ai-analyst/tests/Analyst.Tests/SqlValidatorTests.cs`.
 
+### Endpoint hardening (the `/api/ask` proxy)
+
+Beyond the NL→SQL safety above, the proxy in `ECommerPipeline.Api` adds production guards (P0):
+- **Rate limiting** — per-user (15 req/min), HTTP 429 on excess. LLM calls cost money and are abusable. (`AddRateLimiter` + `.RequireRateLimiting("ai-ask")`)
+- **Caching** — identical questions are served from `IMemoryCache` (10-min TTL) without a second LLM call.
+- **Audit logging** — every question logs `user → status → latency` with the request correlation id.
+- **Secrets fail-fast** — the app refuses to boot in Production with the bundled dev `Jwt:Secret`.
+
+See `docs/DECISIONS.md` → Production Roadmap for the full P0/P1/P2 list.
+
 ## Why Gold (not Silver/raw)
 
 The Gold tables are denormalized, business-ready, and single-schema — ideal NL→SQL targets (clean column names, no SCD2 surrogate-key joins). Questions about data not in Gold (e.g. per-store breakdown) are correctly refused — that's the safety story working, not a bug. To widen coverage later, add the Silver star schema (`fact.SalesOrderItem` + `dim.*`) to `schema.ecommerce.json` and grant `analyst_ro` SELECT on `fact`/`dim`.

@@ -187,3 +187,30 @@
 | Jobs | Hangfire chung process | Worker tách riêng / message queue |
 | AI accuracy | Eval thủ công | Eval gate trong CI + cache + clarify層 |
 | Auth | Tự quản JWT | IdentityServer / Azure AD B2C |
+
+---
+
+## Production Roadmap (P0 / P1 / P2)
+
+Khoảng cách giữa *portfolio* và *production*, ưu tiên rõ ràng. **P0 = bắt buộc trước khi lên prod.**
+
+### 🔴 P0 — bắt buộc
+
+| Hạng mục | Trạng thái |
+|---|---|
+| **Rate-limit `/api/ask`** (per-user, 15/phút, HTTP 429) — chặn lạm dụng + chi phí LLM | ✅ **Đã làm** (`AddRateLimiter` + `RequireRateLimiting("ai-ask")`) |
+| **Cache câu hỏi→kết quả** (IMemoryCache, TTL 10′) — bỏ gọi LLM lặp | ✅ **Đã làm** |
+| **Audit log AI** (ai hỏi gì → status → latency, kèm correlation-id) | ✅ **Đã làm** |
+| **Secrets fail-fast** — Production từ chối boot nếu `Jwt:Secret` là dev-default/yếu | ✅ **Đã làm** |
+| **ETL bắt UPDATE/DELETE** — watermark hiện chỉ bắt INSERT | ⏳ Cần CDC (xem ADR-5) |
+| **OLAP migration tooling** — thay `IF NOT EXISTS` bằng versioned (DbUp/Flyway) | ⏳ |
+| **PII guard cho AI** — Gold chỉ aggregate, mask dữ liệu cá nhân | ⏳ (schema Gold hiện đã hầu như không chứa PII) |
+| **HTTPS/CORS chặt** | ⏳ (deployment) |
+
+> **Vì sao 4 cái đầu làm trước:** chúng bảo vệ tính năng AI — phần *đắt tiền* (mỗi câu hỏi = 1 lần gọi LLM) và *dễ bị lạm dụng* nhất. Đây cũng là defense-in-depth mở rộng: ADR-7 chống *SQL độc*, còn rate-limit/cache/audit chống *lạm dụng tài nguyên & thiếu truy vết*.
+
+### 🟡 P1 — để chạy ổn ở quy mô thật
+Partition fact theo thời gian · Gold incremental (bỏ truncate) · tách worker ETL · observability backend bền + metrics/alerting · **AI eval-gate trong CI** · AI metrics (refusal rate, accuracy, cost) · backup/DR · load test.
+
+### 🟢 P2 — tính năng sản phẩm
+Multi-tenancy (per-tenant `analyst_ro`) · AI clarify + feedback loop (👍/👎) · AI streaming qua SignalR · scheduled reports/export · alerting nghiệp vụ · RBAC chi tiết · mở rộng dimension · saved questions/dashboard builder.
