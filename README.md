@@ -128,6 +128,7 @@ CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): build + test + dock
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Enterprise patterns: Medallion, SCD Type 2, Data Quality, OpenTelemetry — + so sánh enterprise reality |
 | [STUDY_GUIDE.md](docs/STUDY_GUIDE.md) | Deep-dive 10 tech stack (giải thích + Q&A phỏng vấn + self-test) |
 | [DOCKER.md](docs/DOCKER.md) | Docker quickstart + troubleshooting |
+| [DEPLOY_VPS.md](docs/DEPLOY_VPS.md) | **Deploy lên VPS (always-on, HTTPS qua Caddy)** — docker-compose.prod.yml, từng bước |
 | [DEPLOY_AZURE.md](docs/DEPLOY_AZURE.md) | Deploy lên Azure free tier (App Service + Azure SQL) |
 | [AI_ANALYST_INTEGRATION.md](docs/AI_ANALYST_INTEGRATION.md) | NL→SQL layer (`ai-analyst/`): schema whitelist, read-only principal, docker wiring, safety model |
 | [DECISIONS.md](docs/DECISIONS.md) | Architecture decisions & trade-offs (ADR) — vì sao mỗi lựa chọn + "nếu scale thì đổi gì" |

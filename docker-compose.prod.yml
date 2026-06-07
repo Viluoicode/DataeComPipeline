@@ -1,0 +1,130 @@
+# ========================================================================
+#  Production stack for a single VPS.
+#  - HTTPS handled by Caddy (automatic Let's Encrypt certificate).
+#  - Only Caddy is published (80/443); SQL/API/analyst stay on the internal
+#    Docker network — never exposed to the internet.
+#  - Secrets come from a .env file next to this one (see .env.example).
+#
+#  Deploy:
+#    cp .env.example .env && nano .env        # fill DOMAIN, SA_PASSWORD, JWT_SECRET
+#    docker compose -f docker-compose.prod.yml up -d --build
+#
+#  Full guide: docs/DEPLOY_VPS.md
+# ========================================================================
+
+services:
+
+  sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: ecom-sql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${SA_PASSWORD}"
+      MSSQL_PID: "Developer"
+      MSSQL_MEMORY_LIMIT_MB: "3072"      # cap SQL RAM so the box doesn't OOM
+    volumes:
+      - sql_data:/var/opt/mssql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -No -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      retries: 12
+      start_period: 40s
+      timeout: 5s
+
+  api:
+    build:
+      context: .
+      dockerfile: src/ECommerPipeline.Api/Dockerfile
+    container_name: ecom-api
+    depends_on:
+      sql:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__OltpConnection:     "Server=sql;Database=ECommerPipeline_Oltp;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;Encrypt=False;"
+      ConnectionStrings__OlapConnection:     "Server=sql;Database=ECommerPipeline_Olap;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;Encrypt=False;"
+      ConnectionStrings__HangfireConnection: "Server=sql;Database=ECommerPipeline_Hangfire;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True;Encrypt=False;"
+      # Small seed for a snappy first boot (raise for a fuller demo)
+      Seed__CustomerCount: "500"
+      Seed__ProductCount:  "100"
+      Seed__OrderCount:    "5000"
+      # Secrets from .env — Production refuses to boot with the dev default
+      Jwt__Secret:   "${JWT_SECRET}"
+      Jwt__Issuer:   "ECommerPipeline"
+      Jwt__Audience: "ECommerPipeline.Client"
+      Analyst__BaseUrl: "http://analyst-api:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 15s
+      retries: 10
+      start_period: 120s
+      timeout: 5s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ecom-frontend
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+  # One-shot: create the read-only analyst_ro principal on the OLAP DB.
+  analyst-db-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: ecom-analyst-db-init
+    depends_on:
+      api:
+        condition: service_healthy        # ensures OLAP DB + gold schema exist
+    volumes:
+      - ./ai-analyst/db:/db:ro
+    restart: "no"
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        /opt/mssql-tools18/bin/sqlcmd -S sql -U sa -P "${SA_PASSWORD}" -No -b \
+          -i /db/create_readonly_user.ecommerce.sql
+        echo 'analyst read-only user ready.'
+
+  analyst-api:
+    build:
+      context: ./ai-analyst
+      dockerfile: Dockerfile
+    container_name: ecom-analyst-api
+    depends_on:
+      analyst-db-init:
+        condition: service_completed_successfully
+    environment:
+      ASPNETCORE_URLS: "http://+:8080"
+      ConnectionStrings__Analyst: "Server=sql,1433;Database=ECommerPipeline_Olap;User Id=analyst_ro;Password=Readonly#Analyst1;TrustServerCertificate=True;Encrypt=False"
+      Analyst__Provider: "Offline"
+      Analyst__SchemaConfigPath: "config/schema.ecommerce.json"
+    restart: unless-stopped
+
+  # Reverse proxy + automatic HTTPS. The ONLY service exposed publicly.
+  caddy:
+    image: caddy:2-alpine
+    container_name: ecom-caddy
+    depends_on:
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: "${DOMAIN}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  sql_data:
+  caddy_data:
+  caddy_config:
