@@ -1,14 +1,23 @@
-name: CI
+name: AI Analyst
 
+# Runs only when the AI Analyst service changes. Builds it (.NET 10), runs its
+# unit tests, then runs the evaluation harness as a GATE: any safety regression
+# (a malicious query that the validator fails to block) fails the build.
 on:
   push:
-    branches: [ main ]
+    branches: [main]
+    paths: ['ai-analyst/**', '.github/workflows/ai-analyst.yml']
   pull_request:
-    branches: [ main ]
+    branches: [main]
+    paths: ['ai-analyst/**', '.github/workflows/ai-analyst.yml']
+
+defaults:
+  run:
+    working-directory: ai-analyst
 
 jobs:
   build-and-test:
-    name: Build + unit tests
+    name: Build + unit tests (.NET 10)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,23 +28,23 @@ jobs:
         run: dotnet restore AiDataAnalyst.slnx
       - name: Build
         run: dotnet build AiDataAnalyst.slnx -c Release --no-restore
-      - name: Unit tests
+      - name: Unit tests (validator + service, DB-free)
         run: dotnet test tests/Analyst.Tests/Analyst.Tests.csproj -c Release --no-build --verbosity normal
 
   evaluate:
-    name: Evaluation (accuracy + safety gate)
+    name: Eval gate (accuracy + safety)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Start SQL Server (schema + seed + read-only role)
+      - name: Start SQL Server + seed demo DB (schema -> seed -> read-only role)
         run: |
-          docker compose up -d
+          docker compose up -d mssql-init
           echo "Waiting for DB init to finish..."
           code=$(docker wait analyst-mssql-init)
           docker logs analyst-mssql-init
           test "$code" = "0"
-      - name: Run evaluation (fails on any safety regression)
+      - name: Run evaluation (non-zero exit on any safety regression)
         run: dotnet run --project tests/Analyst.Eval/Analyst.Eval.csproj -c Release

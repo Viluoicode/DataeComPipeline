@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading.RateLimiting;
 using ECommerPipeline.Api.Hubs;
 using ECommerPipeline.Api.Middleware;
+using ECommerPipeline.Api.Observability;
 using ECommerPipeline.Application.Auth;
 using ECommerPipeline.Application.Auth.DTOs;
 using ECommerPipeline.Application.Auth.Validators;
@@ -67,6 +68,9 @@ builder.Services.AddHttpClient("analyst", c =>
 
 // In-memory cache for AI answers (skip repeat LLM calls for identical questions).
 builder.Services.AddMemoryCache();
+
+// In-memory AI usage metrics (refusal rate, cache-hit rate, latency).
+builder.Services.AddSingleton<AiMetrics>();
 
 // Rate-limit the AI endpoint PER authenticated user: LLM calls cost money and are
 // abusable. 15 questions / minute / user; excess gets HTTP 429.
@@ -419,6 +423,7 @@ app.MapPost("/api/ask", async (
         AskRequest req,
         IHttpClientFactory factory,
         IMemoryCache cache,
+        AiMetrics metrics,
         ILogger<Program> logger,
         HttpContext http,
         CancellationToken ct) =>
@@ -436,6 +441,7 @@ app.MapPost("/api/ask", async (
     // Cache hit — return without calling the LLM at all.
     if (cache.TryGetValue(cacheKey, out string? cachedJson) && cachedJson is not null)
     {
+        metrics.RecordCacheHit();
         logger.LogInformation("AI ask (cache hit) by {User}: {Question}", user, req.Question);
         return Results.Content(cachedJson, "application/json");
     }
@@ -459,6 +465,14 @@ app.MapPost("/api/ask", async (
         }
         catch { /* non-JSON error body — leave status unknown */ }
 
+        // Metrics: Answered vs Refused (LLM outcomes) vs error (non-success HTTP).
+        if (!resp.IsSuccessStatusCode)
+            metrics.RecordError();
+        else if (string.Equals(status, "Refused", StringComparison.OrdinalIgnoreCase))
+            metrics.RecordRefused(sw.ElapsedMilliseconds);
+        else
+            metrics.RecordAnswered(sw.ElapsedMilliseconds);
+
         logger.LogInformation(
             "AI ask by {User}: {Question} -> {Status} in {ElapsedMs}ms",
             user, req.Question, status, sw.ElapsedMilliseconds);
@@ -471,6 +485,7 @@ app.MapPost("/api/ask", async (
     }
     catch (HttpRequestException ex)
     {
+        metrics.RecordError();
         logger.LogError(ex, "AI Analyst service unreachable (asked by {User})", user);
         return Results.Problem(
             "AI Analyst service is unavailable. Ensure the analyst-api service is running.",
@@ -480,6 +495,11 @@ app.MapPost("/api/ask", async (
 .RequireAuthorization(p => p.RequireRole("Admin", "Staff"))
 .RequireRateLimiting("ai-ask")
 .WithTags("AI Analyst");
+
+// AI usage metrics (refusal rate, cache-hit rate, avg LLM latency). Admin only.
+app.MapGet("/api/admin/ai-metrics", (AiMetrics metrics) => Results.Ok(metrics.Snapshot()))
+   .RequireAuthorization(p => p.RequireRole("Admin"))
+   .WithTags("AI Analyst");
 
 // ============================================================
 //  Admin — dev helpers (trigger ETL ngay, reset data)

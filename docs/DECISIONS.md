@@ -210,7 +210,16 @@ Khoảng cách giữa *portfolio* và *production*, ưu tiên rõ ràng. **P0 = 
 > **Vì sao 4 cái đầu làm trước:** chúng bảo vệ tính năng AI — phần *đắt tiền* (mỗi câu hỏi = 1 lần gọi LLM) và *dễ bị lạm dụng* nhất. Đây cũng là defense-in-depth mở rộng: ADR-7 chống *SQL độc*, còn rate-limit/cache/audit chống *lạm dụng tài nguyên & thiếu truy vết*.
 
 ### 🟡 P1 — để chạy ổn ở quy mô thật
-Partition fact theo thời gian · Gold incremental (bỏ truncate) · tách worker ETL · observability backend bền + metrics/alerting · **AI eval-gate trong CI** · AI metrics (refusal rate, accuracy, cost) · backup/DR · load test.
+
+| Hạng mục | Trạng thái |
+|---|---|
+| **AI eval-gate trong CI** — `.github/workflows/ai-analyst.yml`: build + unit tests + chạy eval harness; **safety regression làm fail build** (validator để lọt 1 query độc → đỏ CI) | ✅ **Đã làm** |
+| **AI metrics** — `GET /api/admin/ai-metrics`: refusal rate, cache-hit rate, avg LLM latency, tổng câu hỏi (Admin only) | ✅ **Đã làm** |
+| Partition fact theo thời gian | ⏳ (schema change, cần OLAP fresh) |
+| Gold incremental (bỏ truncate+repopulate) | ⏳ (đổi core ETL, rủi ro) |
+| Tách worker ETL khỏi web · observability backend bền + alerting · backup/DR · load test | ⏳ (hạ tầng/deploy) |
+
+> **Vì sao 2 cái đầu làm trước:** chúng làm tính năng AI **quan sát được** (metrics) và **chống regression** (eval-gate) — hai thứ cần ngay khi có người dùng thật, và làm được hoàn toàn trong codebase. Phần còn lại là hạ tầng/ops, làm lúc deploy thật.
 
 ### 🟢 P2 — tính năng sản phẩm
 Multi-tenancy (per-tenant `analyst_ro`) · AI clarify + feedback loop (👍/👎) · AI streaming qua SignalR · scheduled reports/export · alerting nghiệp vụ · RBAC chi tiết · mở rộng dimension · saved questions/dashboard builder.
