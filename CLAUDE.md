@@ -68,5 +68,6 @@ Full detail: `.claude/docs/etl-pipeline.md`.
 - `.claude/docs/etl-pipeline.md` — ETL internals: watermark, Medallion, SCD Type 2, Gold refresh, Data Quality
 - `.claude/docs/auth.md` — JWT access/refresh flow, role-based authorization, SignalR auth
 - `.claude/docs/frontend.md` — React routing, contexts (Auth/Cart), SignalR hook, API client interceptors
+- `.claude/docs/ai-analyst.md` — pipeline-side NL→SQL integration: `/api/ask` proxy, rate-limit/cache/metrics, schema whitelist, `analyst_ro`, safety constraints
 
 Human-facing docs (recruiters, study) live separately in `docs/` (ARCHITECTURE, STUDY_GUIDE, DOCKER, DEPLOY_AZURE, CHANGELOG).
