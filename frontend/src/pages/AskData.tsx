@@ -13,11 +13,13 @@ interface ChatMessage {
   result?: AnalystResult        // assistant structured answer
 }
 
+// Match the fewShot questions in config/schema.ecommerce.json so the offline
+// provider returns a canned answer (real LLM providers handle free-form too).
 const SUGGESTIONS = [
   'Doanh thu theo category, sắp xếp giảm dần',
-  'Top 10 sản phẩm bán chạy nhất tháng này',
-  'Khách hàng nào có lifetime value cao nhất?',
-  'Có bao nhiêu khách hàng chưa mua hàng quá 60 ngày?',
+  'Top 10 sản phẩm bán chạy nhất tháng 5 năm 2026',
+  'Which customers have the highest lifetime value?',
+  'Có bao nhiêu khách hàng đã không mua hàng trong hơn 60 ngày?',
 ]
 
 export function AskData() {

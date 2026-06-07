@@ -23,7 +23,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(schema);
         services.AddSingleton<PromptBuilder>();
         services.AddSingleton<ITextToSqlGenerator, TextToSqlGenerator>();
-        services.AddSingleton(BuildChatClient(options));
+        services.AddSingleton(BuildChatClient(options, schema));
 
         // Offline mode summarizes deterministically; a real provider uses the chat model.
         if (options.Provider == LlmProvider.Offline)
@@ -39,9 +39,9 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    private static IChatClient BuildChatClient(AnalystCoreOptions options) => options.Provider switch
+    private static IChatClient BuildChatClient(AnalystCoreOptions options, SchemaConfig schema) => options.Provider switch
     {
-        LlmProvider.Offline => new OfflineChatClient(),
+        LlmProvider.Offline => new OfflineChatClient(schema),
 
         LlmProvider.AzureOpenAI => CreateAzure(options.Azure),
 

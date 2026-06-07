@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Analyst.Core.Configuration;
 using Microsoft.Extensions.AI;
 
 namespace Analyst.Core.Llm;
@@ -12,8 +13,10 @@ namespace Analyst.Core.Llm;
 /// </summary>
 public sealed partial class OfflineChatClient : IChatClient
 {
-    // Normalized question -> canned T-SQL. Doubles as ground truth for the eval golden set.
-    private static readonly Dictionary<string, string> Canned = new(StringComparer.Ordinal)
+    // Normalized question -> canned T-SQL. Doubles as ground truth for the eval golden set
+    // (F&B demo). These are always present; the active schema's fewShot is merged on top in
+    // the constructor so Offline also answers whatever schema.*.json is loaded (e.g. e-commerce).
+    private static readonly Dictionary<string, string> BaseCanned = new(StringComparer.Ordinal)
     {
         ["what was total revenue in 2024?"] =
             "SELECT TOP 1000 SUM(f.LineTotal) AS TotalRevenue FROM gold.FactOrderItem AS f JOIN gold.DimDate AS d ON d.DateKey = f.DateKey WHERE d.[Year] = 2024;",
@@ -40,8 +43,37 @@ public sealed partial class OfflineChatClient : IChatClient
             "SELECT TOP 3 s.StoreName, SUM(f.LineTotal) AS Revenue FROM gold.FactOrderItem AS f JOIN gold.DimStore AS s ON s.StoreKey = f.StoreKey GROUP BY s.StoreName ORDER BY Revenue DESC;",
     };
 
-    private const string Fallback =
+    private const string BaseFallback =
         "SELECT TOP 10 p.ProductName, p.Category, p.BasePrice FROM gold.DimProduct AS p ORDER BY p.BasePrice DESC;";
+
+    // Effective lookup = BaseCanned + the active schema's fewShot (schema wins on conflict).
+    private readonly Dictionary<string, string> _canned;
+    // Fallback for unmatched questions: the first whitelisted fewShot of the active schema,
+    // so we never emit SQL referencing tables outside the loaded schema's whitelist.
+    private readonly string _fallback;
+
+    /// <summary>Parameterless: F&B-only canned set (used by unit tests / eval harness).</summary>
+    public OfflineChatClient() : this(null) { }
+
+    /// <summary>Schema-aware: merges the loaded schema's fewShot so Offline works for any schema.</summary>
+    public OfflineChatClient(SchemaConfig? schema)
+    {
+        _canned = new Dictionary<string, string>(BaseCanned, StringComparer.Ordinal);
+        if (schema is not null)
+        {
+            foreach (var ex in schema.FewShot)
+            {
+                var k = Normalize(ex.Question);
+                if (k.Length > 0 && !string.IsNullOrWhiteSpace(ex.Sql))
+                    _canned[k] = ex.Sql;
+            }
+            _fallback = schema.FewShot.Count > 0 ? schema.FewShot[0].Sql : BaseFallback;
+        }
+        else
+        {
+            _fallback = BaseFallback;
+        }
+    }
 
     public Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
@@ -49,9 +81,9 @@ public sealed partial class OfflineChatClient : IChatClient
         var question = LastUserText(messages);
         var key = Normalize(question);
 
-        var (sql, rationale) = Canned.TryGetValue(key, out var canned)
+        var (sql, rationale) = _canned.TryGetValue(key, out var canned)
             ? (canned, "offline canned provider")
-            : (Fallback, "offline fallback: no canned match for this question");
+            : (_fallback, "offline fallback: no canned match; returning a safe whitelisted query");
 
         var json = JsonSerializer.Serialize(new { sql, rationale });
         return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, json)));
