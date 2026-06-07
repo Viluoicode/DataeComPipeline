@@ -130,6 +130,7 @@ CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): build + test + dock
 | [DOCKER.md](docs/DOCKER.md) | Docker quickstart + troubleshooting |
 | [DEPLOY_AZURE.md](docs/DEPLOY_AZURE.md) | Deploy lên Azure free tier (App Service + Azure SQL) |
 | [AI_ANALYST_INTEGRATION.md](docs/AI_ANALYST_INTEGRATION.md) | NL→SQL layer (`ai-analyst/`): schema whitelist, read-only principal, docker wiring, safety model |
+| [DECISIONS.md](docs/DECISIONS.md) | Architecture decisions & trade-offs (ADR) — vì sao mỗi lựa chọn + "nếu scale thì đổi gì" |
 | [CHANGELOG.md](docs/CHANGELOG.md) | Hành trình phát triển theo phase + metrics |
 
 ---
