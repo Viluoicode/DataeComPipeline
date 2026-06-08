@@ -78,7 +78,7 @@ export function OrdersList() {
 
       <Card>
         <Flex justifyContent="start" className="gap-3 flex-wrap">
-          <div className="w-64">
+          <div className="w-full sm:w-64">
             <Text>Search (order # / customer)</Text>
             <TextInput
               placeholder="ORD-... or customer name"
@@ -91,7 +91,7 @@ export function OrdersList() {
             />
           </div>
 
-          <div className="w-40">
+          <div className="w-full sm:w-40">
             <Text>Status</Text>
             <Select
               value={query.status?.toString() ?? ''}
@@ -108,7 +108,7 @@ export function OrdersList() {
             </Select>
           </div>
 
-          <div className="w-40">
+          <div className="w-full sm:w-40">
             <Text>From</Text>
             <DateInput
               value={query.from ?? ''}
@@ -116,7 +116,7 @@ export function OrdersList() {
             />
           </div>
 
-          <div className="w-40">
+          <div className="w-full sm:w-40">
             <Text>To</Text>
             <DateInput
               value={query.to ?? ''}
@@ -154,6 +154,7 @@ export function OrdersList() {
           {loading && <Text color="blue">Loading...</Text>}
         </Flex>
 
+        <div className="overflow-x-auto">
         <Table>
           <TableHead>
             <TableRow>
@@ -193,6 +194,7 @@ export function OrdersList() {
             )}
           </TableBody>
         </Table>
+        </div>
 
         <Flex justifyContent="end" className="mt-4 gap-2">
           <Button

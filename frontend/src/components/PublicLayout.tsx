@@ -7,6 +7,8 @@ import {
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
   ClipboardDocumentListIcon,
+  Bars3Icon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
 import { useAuth } from '../contexts/AuthContext'
@@ -23,6 +25,7 @@ export function PublicLayout() {
   const { itemCount } = useCart()
   const [cartOpen, setCartOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [mobileNav, setMobileNav] = useState(false)
   const nav = useNavigate()
 
   return (
@@ -30,13 +33,22 @@ export function PublicLayout() {
       {/* ── Header ───────────────────────────────────────── */}
       <header className="sticky top-0 z-30 bg-gray-900/80 backdrop-blur border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 group">
-            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm group-hover:scale-105 transition">
-              EC
-            </div>
-            <span className="font-semibold text-gray-50 text-lg">ECommerPipeline</span>
-          </Link>
+          {/* Left: hamburger (mobile) + logo */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setMobileNav(o => !o)}
+              className="md:hidden p-2 -ml-2 rounded-md text-gray-300 hover:bg-gray-800 hover:text-gray-50"
+              aria-label="Menu"
+            >
+              {mobileNav ? <XMarkIcon className="w-6 h-6" /> : <Bars3Icon className="w-6 h-6" />}
+            </button>
+            <Link to="/" className="flex items-center gap-2 group">
+              <div className="w-8 h-8 rounded-md bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm group-hover:scale-105 transition">
+                EC
+              </div>
+              <span className="font-semibold text-gray-50 text-base sm:text-lg">ECommerPipeline</span>
+            </Link>
+          </div>
 
           {/* Center nav */}
           <nav className="hidden md:flex items-center gap-6">
@@ -128,6 +140,30 @@ export function PublicLayout() {
             )}
           </div>
         </div>
+
+        {/* Mobile nav dropdown (Home / Shop) */}
+        {mobileNav && (
+          <div className="md:hidden border-t border-gray-800 bg-gray-900">
+            <nav className="max-w-7xl mx-auto px-4 py-2 flex flex-col">
+              {navItems.map(({ to, label }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={to === '/'}
+                  onClick={() => setMobileNav(false)}
+                  className={({ isActive }) =>
+                    clsx(
+                      'px-2 py-3 rounded-md text-sm font-medium transition',
+                      isActive ? 'text-blue-400 bg-blue-900/20' : 'text-gray-300 hover:bg-gray-800 hover:text-gray-50'
+                    )
+                  }
+                >
+                  {label}
+                </NavLink>
+              ))}
+            </nav>
+          </div>
+        )}
       </header>
 
       {/* ── Main ─────────────────────────────────────────── */}

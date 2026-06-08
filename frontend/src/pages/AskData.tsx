@@ -55,7 +55,7 @@ export function AskData() {
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto flex flex-col h-[calc(100vh-3rem)]">
+    <div className="p-4 sm:p-6 max-w-4xl mx-auto flex flex-col h-[calc(100dvh-3.5rem)] md:h-screen">
       <div className="mb-4">
         <Title className="!text-2xl flex items-center gap-2">
           <SparklesIcon className="w-6 h-6 text-blue-400" /> Ask Data
