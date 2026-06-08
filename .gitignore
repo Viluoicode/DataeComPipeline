@@ -21,6 +21,9 @@ dist/
 .env.local
 .env.*.local
 
+# Ephemeral Cloudflare quick-tunnel URL written by start-demo
+demo-url.txt
+
 # ====== Logs ======
 *.log
 npm-debug.log*

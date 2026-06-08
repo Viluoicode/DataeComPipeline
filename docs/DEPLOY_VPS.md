@@ -8,6 +8,12 @@ Linux VPS via Docker Compose. Caddy gives automatic HTTPS. End result: a live
 > managed tier, so free hosts (Render/Railway/Fly) end up costing money anyway.
 > A small VPS is the cheapest *reliable* full-feature option (~$5–6/month).
 
+> **Free alternative (no VPS):** double-click **`start-demo.bat`** to run the whole
+> stack locally and expose it via a Cloudflare Quick Tunnel — a public `https://…
+> .trycloudflare.com` URL. It's free but only live while your PC + the demo are
+> running, and the URL changes each run. Good for live interview demos; use the VPS
+> below for an always-on link you can put on a CV.
+
 ---
 
 ## 1. Get a VPS

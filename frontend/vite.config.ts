@@ -20,6 +20,8 @@ const proxy = {
 
 export default defineConfig({
   plugins: [react()],
-  server: { port: 5173, proxy },
-  preview: { port: 5173, proxy },
+  // allowedHosts: true → accept the random *.trycloudflare.com host so the
+  // Cloudflare Tunnel demo isn't rejected with "host not allowed".
+  server: { port: 5173, proxy, allowedHosts: true },
+  preview: { port: 5173, proxy, allowedHosts: true },
 })
