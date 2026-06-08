@@ -154,7 +154,36 @@ export function OrdersList() {
           {loading && <Text color="blue">Loading...</Text>}
         </Flex>
 
-        <div className="overflow-x-auto">
+        {/* Mobile: stacked cards (instead of a horizontally-scrolling table) */}
+        <div className="md:hidden divide-y divide-gray-200 dark:divide-gray-800">
+          {items.map(o => (
+            <button
+              key={o.id}
+              onClick={() => nav(`/admin/orders/${o.id}`)}
+              className="w-full text-left py-3 px-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/40 transition"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs text-gray-500">{o.orderNumber}</span>
+                <Badge color={statusColor[o.status] ?? 'gray'}>
+                  {OrderStatusLabel[o.status] ?? `#${o.status}`}
+                </Badge>
+              </div>
+              <div className="mt-1 font-medium">{o.customerName}</div>
+              <div className="mt-1 flex items-center justify-between text-sm">
+                <span className="text-gray-500">
+                  {new Date(o.orderDate).toLocaleDateString('vi-VN')} · {o.itemCount} items
+                </span>
+                <span className="font-semibold">{formatVnd(o.totalAmount)}</span>
+              </div>
+            </button>
+          ))}
+          {items.length === 0 && !loading && (
+            <div className="text-center py-8 text-gray-500">No orders match the filters</div>
+          )}
+        </div>
+
+        {/* Desktop: full table */}
+        <div className="overflow-x-auto hidden md:block">
         <Table>
           <TableHead>
             <TableRow>
