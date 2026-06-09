@@ -11,13 +11,14 @@
 # ──────────────────────────────────────────────────────────────
 
 # --- Extract (E): read from SQL Server OLTP ---
-SQLAlchemy>=2.0
+# Intentionally pandas/numpy-free: pyodbc reads, DuckDB writes parquet via COPY.
+# (Avoids the numpy/OpenBLAS thread-allocation crash seen on some Windows boxes,
+#  and forces an explicit, defendable warehouse schema.)
 pyodbc>=5.1            # needs "ODBC Driver 18 for SQL Server" installed (see README)
-pandas>=2.2
-pyarrow>=17.0         # write parquet landing files
 
 # --- Load + local warehouse (L) ---
-duckdb>=1.1           # local analytical warehouse (stands in for BigQuery in dev)
+duckdb>=1.1           # local analytical warehouse (stands in for BigQuery in dev);
+                      #   also writes the parquet landing files via COPY
 
 # --- Config ---
 python-dotenv>=1.0    # load DB credentials from .env

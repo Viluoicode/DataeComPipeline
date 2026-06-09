@@ -3,153 +3,157 @@ extract_oltp.py — the "E" (Extract) and "L" (Load to landing) of the pipeline.
 
 WHAT IT DOES
 ------------
-1. Connects to the SQL Server OLTP database (ECommerPipeline_Oltp).
+1. Connects to the SQL Server OLTP database (ECommerPipeline_Oltp) via pyodbc.
 2. Pulls the 4 source tables we need for analytics:
        Customers, Products, Orders, OrderItems
-3. Writes each as a parquet file into data/raw/   <-- this is the "landing zone"
-       (conceptually the BRONZE layer: raw, untransformed, 1:1 copy of source)
-4. Loads those parquet files into a local DuckDB warehouse, schema `raw`.
-       dbt will then build staging -> marts (Silver/Gold) on top of `raw`.
+3. Loads each into a local DuckDB warehouse under schema `raw`, with an
+   explicit, typed schema (we control the column types — defendable & predictable).
+4. Exports each raw table to parquet in data/raw/  <-- the "landing zone"
+       (conceptually the BRONZE layer: raw, untransformed, 1:1 copy of source).
+   dbt will then build staging -> marts (Silver/Gold) on top of `raw`.
 
-WHY THIS SHAPE (interview talking points)
------------------------------------------
-- We extract to parquet FIRST (a file landing zone) before loading. In a real
-  modern stack this landing zone is object storage (S3/GCS). It lets us replay
-  transformations without re-hitting the source OLTP — same idea as the Bronze
-  layer in the .NET pipeline.
-- We add an `_extracted_at` column = the ingestion timestamp. That is metadata
-  the source doesn't have; it is the first tiny "transformation" and is useful
-  for freshness checks / debugging.
+WHY pyodbc + duckdb (no pandas)?
+--------------------------------
+We deliberately avoid pandas/numpy here. It keeps the dependency set tiny
+(pyodbc + duckdb) and sidesteps numpy/OpenBLAS issues, and — more importantly —
+forces us to declare the warehouse schema explicitly instead of relying on type
+inference. DuckDB writes the parquet itself via COPY.
+
+INTERVIEW TALKING POINTS
+------------------------
+- We land to parquet FIRST (a file landing zone) so transformations can be
+  replayed without re-hitting OLTP — same idea as the Bronze layer.
+- We add an `_extracted_at` column = ingestion timestamp (metadata the source
+  lacks; useful for freshness checks).
 - Day-1 does a FULL extract (simple, correct). The watermark/incremental
-  optimization (only pull new OrderItems) is a deliberate Day-2 upgrade — we
-  already implemented that pattern in the .NET ETL, so porting it here is a
-  natural next step, not an accident.
+  optimization (only pull new OrderItems) is a deliberate Day-2 upgrade — the
+  pattern is already implemented in the .NET ETL, so porting it is natural.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
-import pandas as pd
+import pyodbc
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import URL
 
-# ──────────────────────────────────────────────────────────────────────────
-# Paths — everything is relative to this file so it runs from anywhere.
 # ──────────────────────────────────────────────────────────────────────────
 HERE = Path(__file__).resolve().parent          # .../data-platform/extract
 PLATFORM_ROOT = HERE.parent                      # .../data-platform
 RAW_DIR = PLATFORM_ROOT / "data" / "raw"         # parquet landing zone
 
 # ──────────────────────────────────────────────────────────────────────────
-# The tables we extract. Key = the table name we'll use in the warehouse,
-# value = the SQL that reads it from OLTP. We select only the columns we need
-# for analytics (we intentionally DROP PasswordHash, Role, etc. — analytics has
-# no business seeing auth secrets).
+# Each source table: the SELECT against OLTP + the explicit DuckDB column DDL.
+# We select only analytics-relevant columns (we DROP auth secrets like
+# PasswordHash/Role on purpose). The `_extracted_at` column is appended in code.
 # ──────────────────────────────────────────────────────────────────────────
-SOURCE_QUERIES: dict[str, str] = {
-    "customers": """
-        SELECT Id, FullName, Email, Phone, City, CreatedAt, UpdatedAt
-        FROM   dbo.Customers
-    """,
-    "products": """
-        SELECT Id, Sku, Name, Category, Brand, Price, StockQuantity, CreatedAt, UpdatedAt
-        FROM   dbo.Products
-    """,
-    "orders": """
-        SELECT Id, OrderNumber, CustomerId, OrderDate, Status, TotalAmount, CreatedAt, UpdatedAt
-        FROM   dbo.Orders
-    """,
-    "order_items": """
-        SELECT Id, OrderId, ProductId, Quantity, UnitPrice, LineTotal, CreatedAt, UpdatedAt
-        FROM   dbo.OrderItems
-    """,
+TABLES: dict[str, dict] = {
+    "customers": {
+        "select": "SELECT Id, FullName, Email, Phone, City, CreatedAt, UpdatedAt FROM dbo.Customers",
+        "ddl": """
+            Id BIGINT, FullName VARCHAR, Email VARCHAR, Phone VARCHAR, City VARCHAR,
+            CreatedAt TIMESTAMP, UpdatedAt TIMESTAMP, _extracted_at TIMESTAMP
+        """,
+    },
+    "products": {
+        "select": "SELECT Id, Sku, Name, Category, Brand, Price, StockQuantity, CreatedAt, UpdatedAt FROM dbo.Products",
+        "ddl": """
+            Id BIGINT, Sku VARCHAR, Name VARCHAR, Category VARCHAR, Brand VARCHAR,
+            Price DECIMAL(18,2), StockQuantity INTEGER,
+            CreatedAt TIMESTAMP, UpdatedAt TIMESTAMP, _extracted_at TIMESTAMP
+        """,
+    },
+    "orders": {
+        "select": "SELECT Id, OrderNumber, CustomerId, OrderDate, Status, TotalAmount, CreatedAt, UpdatedAt FROM dbo.Orders",
+        "ddl": """
+            Id BIGINT, OrderNumber VARCHAR, CustomerId BIGINT, OrderDate TIMESTAMP,
+            Status INTEGER, TotalAmount DECIMAL(18,2),
+            CreatedAt TIMESTAMP, UpdatedAt TIMESTAMP, _extracted_at TIMESTAMP
+        """,
+    },
+    "order_items": {
+        "select": "SELECT Id, OrderId, ProductId, Quantity, UnitPrice, LineTotal, CreatedAt, UpdatedAt FROM dbo.OrderItems",
+        "ddl": """
+            Id BIGINT, OrderId BIGINT, ProductId BIGINT, Quantity INTEGER,
+            UnitPrice DECIMAL(18,2), LineTotal DECIMAL(18,2),
+            CreatedAt TIMESTAMP, UpdatedAt TIMESTAMP, _extracted_at TIMESTAMP
+        """,
+    },
 }
 
 
-def build_oltp_engine():
-    """Create a SQLAlchemy engine pointed at the SQL Server OLTP database.
-
-    We use URL.create() instead of a raw string so the password can contain
-    special characters (ours has '@') without manual URL-escaping.
-    """
-    connection_url = URL.create(
-        "mssql+pyodbc",
-        username=os.environ["OLTP_USER"],
-        password=os.environ["OLTP_PASSWORD"],
-        host=os.environ["OLTP_HOST"],
-        port=int(os.environ.get("OLTP_PORT", 1433)),
-        database=os.environ["OLTP_DB"],
-        query={
-            "driver": os.environ.get("OLTP_ODBC_DRIVER", "ODBC Driver 18 for SQL Server"),
-            # Dev SQL Server uses a self-signed cert; trust it and don't force encryption.
-            "TrustServerCertificate": "yes",
-            "Encrypt": "no",
-        },
+def build_odbc_conn_str() -> str:
+    """Assemble the pyodbc connection string from environment variables."""
+    return (
+        f"DRIVER={{{os.environ.get('OLTP_ODBC_DRIVER', 'ODBC Driver 18 for SQL Server')}}};"
+        f"SERVER={os.environ['OLTP_HOST']},{os.environ.get('OLTP_PORT', '1433')};"
+        f"DATABASE={os.environ['OLTP_DB']};"
+        f"UID={os.environ['OLTP_USER']};PWD={os.environ['OLTP_PASSWORD']};"
+        # Dev SQL Server uses a self-signed cert; trust it, don't force encryption.
+        "TrustServerCertificate=yes;Encrypt=no;"
     )
-    return create_engine(connection_url)
 
 
-def extract_table(engine, name: str, query: str) -> pd.DataFrame:
-    """Run one extract query and return a DataFrame, stamped with ingestion time."""
-    with engine.connect() as conn:
-        df = pd.read_sql(text(query), conn)
-    # The single source-agnostic piece of metadata we add at ingestion time.
-    df["_extracted_at"] = pd.Timestamp.utcnow()
-    return df
+def column_count(ddl: str) -> int:
+    """How many columns the DDL declares — used to build the INSERT placeholders."""
+    return len([c for c in ddl.split(",") if c.strip()])
 
 
 def main() -> int:
-    # Load credentials from data-platform/.env (falls back to real env vars).
     load_dotenv(PLATFORM_ROOT / ".env")
-
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     duckdb_path = PLATFORM_ROOT / os.environ.get("DUCKDB_PATH", "warehouse.duckdb")
 
-    print(f"→ Source : SQL Server {os.environ.get('OLTP_HOST')}:{os.environ.get('OLTP_PORT')}"
+    print(f"-> Source   : SQL Server {os.environ.get('OLTP_HOST')}:{os.environ.get('OLTP_PORT')}"
           f"/{os.environ.get('OLTP_DB')}")
-    print(f"→ Landing: {RAW_DIR}")
-    print(f"→ Warehouse: {duckdb_path}\n")
+    print(f"-> Landing  : {RAW_DIR}")
+    print(f"-> Warehouse: {duckdb_path}\n")
 
     try:
-        engine = build_oltp_engine()
+        src = pyodbc.connect(build_odbc_conn_str(), timeout=60)
     except KeyError as e:
-        print(f"✗ Missing config {e}. Did you copy .env.example to .env?", file=sys.stderr)
+        print(f"x Missing config {e}. Did you copy .env.example to .env?", file=sys.stderr)
+        return 1
+    except pyodbc.Error as e:
+        print(f"x Cannot connect to OLTP: {e}", file=sys.stderr)
+        print("  Tip: is the Docker SQL container up?  docker compose up -d sql", file=sys.stderr)
         return 1
 
-    # Open the local DuckDB warehouse and make sure the `raw` schema exists.
     con = duckdb.connect(str(duckdb_path))
     con.execute("CREATE SCHEMA IF NOT EXISTS raw;")
 
+    extracted_at = datetime.now(timezone.utc)
     total_rows = 0
-    for name, query in SOURCE_QUERIES.items():
-        try:
-            df = extract_table(engine, name, query)
-        except Exception as e:  # noqa: BLE001 — surface any connection/query error clearly
-            print(f"✗ Failed extracting '{name}': {e}", file=sys.stderr)
-            print("  Tip: is the Docker SQL container up?  docker compose up -d sql", file=sys.stderr)
-            return 1
 
-        # 1) Write the raw parquet landing file (Bronze-style raw copy).
-        parquet_path = RAW_DIR / f"{name}.parquet"
-        df.to_parquet(parquet_path, index=False)
+    for name, spec in TABLES.items():
+        # 1) Read all rows from OLTP, append the ingestion timestamp to each.
+        cur = src.cursor()
+        cur.execute(spec["select"])
+        rows = [tuple(r) + (extracted_at,) for r in cur.fetchall()]
+        cur.close()
 
-        # 2) (Re)load it into the DuckDB `raw` schema so dbt can read it.
-        #    Full refresh on Day 1: drop + recreate from the parquet we just wrote.
+        # 2) (Re)create the typed raw table in DuckDB and insert.
         con.execute(f"DROP TABLE IF EXISTS raw.{name};")
-        con.execute(f"CREATE TABLE raw.{name} AS SELECT * FROM read_parquet('{parquet_path.as_posix()}');")
+        con.execute(f"CREATE TABLE raw.{name} ({spec['ddl']});")
+        if rows:
+            placeholders = ", ".join(["?"] * column_count(spec["ddl"]))
+            con.executemany(f"INSERT INTO raw.{name} VALUES ({placeholders});", rows)
 
-        rows = len(df)
-        total_rows += rows
-        print(f"  ✓ {name:<12} {rows:>8,} rows  →  raw.{name}  +  {parquet_path.name}")
+        # 3) Export the raw table to a parquet landing file (Bronze-style copy).
+        parquet_path = RAW_DIR / f"{name}.parquet"
+        con.execute(f"COPY raw.{name} TO '{parquet_path.as_posix()}' (FORMAT PARQUET);")
+
+        total_rows += len(rows)
+        print(f"  ok {name:<12} {len(rows):>8,} rows  ->  raw.{name}  +  {parquet_path.name}")
 
     con.close()
-    print(f"\n✓ Extract complete. {total_rows:,} rows landed across {len(SOURCE_QUERIES)} tables.")
-    print("  Next: build the dbt models on top of schema `raw`.")
+    src.close()
+    print(f"\nOK Extract complete. {total_rows:,} rows landed across {len(TABLES)} tables.")
+    print("   Next: build the dbt models on top of schema `raw`.")
     return 0
 
 
