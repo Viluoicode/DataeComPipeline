@@ -1,0 +1,31 @@
+# ──────────────────────────────────────────────────────────────
+# Data Platform (P0) — Python dependencies
+# Install:  pip install -r requirements.txt
+#
+# Python version note:
+#   You have Python 3.14, which is very new — some libraries below may not have
+#   prebuilt wheels for it yet (pip would try to compile from source and fail).
+#   If `pip install` errors out, the most reliable fix is to use Python 3.12:
+#       py -3.12 -m venv .venv      (install 3.12 from python.org if needed)
+#   We use ">=" (not "==") so pip can pick whatever compatible build exists.
+# ──────────────────────────────────────────────────────────────
+
+# --- Extract (E): read from SQL Server OLTP ---
+SQLAlchemy>=2.0
+pyodbc>=5.1            # needs "ODBC Driver 18 for SQL Server" installed (see README)
+pandas>=2.2
+pyarrow>=17.0         # write parquet landing files
+
+# --- Load + local warehouse (L) ---
+duckdb>=1.1           # local analytical warehouse (stands in for BigQuery in dev)
+
+# --- Config ---
+python-dotenv>=1.0    # load DB credentials from .env
+
+# --- Transform (T): dbt ---
+dbt-duckdb>=1.9       # dbt adapter for the local DuckDB target
+# dbt-bigquery>=1.9   # uncomment later when you wire the BigQuery 'prod' target
+
+# NOTE on Airflow (orchestration, Day 3):
+#   apache-airflow does NOT run natively on Windows. We will run it via Docker
+#   (a small docker-compose) instead of pip. Nothing to install here for it.
