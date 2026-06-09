@@ -121,6 +121,22 @@ CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): build + test + dock
 
 ---
 
+## Security & Secret Management
+
+Secret được tách rõ giữa **dev** và **production** — **không có secret thật nào trong repo**:
+
+| Loại | Cách xử lý |
+|---|---|
+| **API keys** (OpenAI/Azure) | Không commit — để trống trong `appsettings.json`, nạp qua env var / user-secrets khi cần |
+| **Connection string + JWT secret (prod)** | Nạp qua biến môi trường / Azure config. `docker-compose.prod.yml` đọc từ `.env` (đã `.gitignore`) |
+| **`appsettings.json`** | Không chứa password literal — runtime inject qua `ConnectionStrings__*` env var hoặc user-secrets |
+| **Dev/demo creds** | Mật khẩu trong `docker-compose.yml` là **throwaway** cho SQL Server chạy localhost (không expose internet). Production **từ chối khởi động** nếu còn dùng JWT dev secret |
+| **Least privilege** | AI Analyst chạy bằng principal **`analyst_ro`** chỉ có quyền `SELECT` trên schema Gold; SQL sinh ra được validate AST (1 `SELECT` + whitelist bảng/cột) trước khi chạy |
+
+> Config precedence: `appsettings.json` < user-secrets *(dev)* < environment variables *(prod)*.
+
+---
+
 ## Documentation
 
 | Doc | Nội dung |
