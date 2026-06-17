@@ -12,6 +12,8 @@ public class OltpDbContext : DbContext, IOltpDbContext
     public DbSet<Product> Products => Set<Product>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+    public DbSet<OrderEvent> OrderEvents => Set<OrderEvent>();
+    public DbSet<Payment> Payments => Set<Payment>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder b)

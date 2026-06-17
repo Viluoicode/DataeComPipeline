@@ -10,4 +10,10 @@ public class Product : BaseEntity
     public string? Brand { get; set; }
     public decimal Price { get; set; }
     public int StockQuantity { get; set; }
+
+    // Optimistic-concurrency token (SQL Server rowversion) — guards against lost
+    // updates on stock when two orders decrement the same product concurrently.
+    // Nullable in CLR so EF InMemory (tests) doesn't require a value; SQL Server
+    // auto-generates it.
+    public byte[]? RowVersion { get; set; }
 }

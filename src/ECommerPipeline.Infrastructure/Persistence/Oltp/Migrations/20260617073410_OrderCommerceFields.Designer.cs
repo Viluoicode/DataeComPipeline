@@ -4,6 +4,7 @@ using ECommerPipeline.Infrastructure.Persistence.Oltp;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ECommerPipeline.Infrastructure.Persistence.Oltp.Migrations
 {
     [DbContext(typeof(OltpDbContext))]
-    partial class OltpDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260617073410_OrderCommerceFields")]
+    partial class OrderCommerceFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -219,61 +222,6 @@ namespace ECommerPipeline.Infrastructure.Persistence.Oltp.Migrations
                     b.ToTable("OrderItems", (string)null);
                 });
 
-            modelBuilder.Entity("ECommerPipeline.Domain.Entities.Payment", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<decimal>("Amount")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("GatewayTransactionId")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<long>("OrderId")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime?>("PaidAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("Provider")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ProviderTxnRef")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("RawCallback")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("ResponseCode")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OrderId");
-
-                    b.HasIndex("ProviderTxnRef")
-                        .IsUnique();
-
-                    b.ToTable("Payments", (string)null);
-                });
-
             modelBuilder.Entity("ECommerPipeline.Domain.Entities.Product", b =>
                 {
                     b.Property<long>("Id")
@@ -409,17 +357,6 @@ namespace ECommerPipeline.Infrastructure.Persistence.Oltp.Migrations
                     b.Navigation("Order");
 
                     b.Navigation("Product");
-                });
-
-            modelBuilder.Entity("ECommerPipeline.Domain.Entities.Payment", b =>
-                {
-                    b.HasOne("ECommerPipeline.Domain.Entities.Order", "Order")
-                        .WithMany()
-                        .HasForeignKey("OrderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Order");
                 });
 
             modelBuilder.Entity("ECommerPipeline.Domain.Entities.RefreshToken", b =>

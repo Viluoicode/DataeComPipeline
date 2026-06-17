@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import {
   ClipboardDocumentListIcon,
   ChevronRightIcon,
@@ -22,6 +23,7 @@ export function MyOrders() {
   const { user } = useAuth()
   const [orders, setOrders] = useState<OrderListItem[]>([])
   const [loading, setLoading] = useState(false)
+  const [cancelling, setCancelling] = useState<number | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -30,6 +32,22 @@ export function MyOrders() {
       .then(r => setOrders(r.items))
       .finally(() => setLoading(false))
   }, [user])
+
+  async function cancelOrder(e: React.MouseEvent, id: number) {
+    e.preventDefault()
+    e.stopPropagation()
+    setCancelling(id)
+    try {
+      const updated = await ordersApi.cancel(id)
+      setOrders(prev => prev.map(o => o.id === id ? { ...o, status: updated.status } : o))
+      toast.success('Đã huỷ đơn hàng')
+    } catch (err: unknown) {
+      const ex = err as { response?: { data?: { detail?: string } } }
+      toast.error(ex?.response?.data?.detail ?? 'Không huỷ được đơn')
+    } finally {
+      setCancelling(null)
+    }
+  }
 
   if (!user) {
     return (
@@ -92,7 +110,17 @@ export function MyOrders() {
                 </div>
                 <div className="text-right">
                   <div className="font-semibold text-blue-400">{formatVnd(o.totalAmount)}</div>
-                  <ChevronRightIcon className="w-5 h-5 text-gray-500 ml-auto mt-2" />
+                  {o.status === 1 ? (
+                    <button
+                      onClick={e => cancelOrder(e, o.id)}
+                      disabled={cancelling === o.id}
+                      className="mt-2 text-xs px-2 py-1 rounded border border-rose-800 text-rose-300 hover:bg-rose-900/30 disabled:opacity-50"
+                    >
+                      {cancelling === o.id ? 'Đang huỷ...' : 'Huỷ đơn'}
+                    </button>
+                  ) : (
+                    <ChevronRightIcon className="w-5 h-5 text-gray-500 ml-auto mt-2" />
+                  )}
                 </div>
               </div>
             </Link>

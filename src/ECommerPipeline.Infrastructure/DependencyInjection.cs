@@ -3,6 +3,7 @@ using ECommerPipeline.Application.Common.Interfaces;
 using ECommerPipeline.Application.Customers;
 using ECommerPipeline.Application.Import;
 using ECommerPipeline.Application.Orders;
+using ECommerPipeline.Application.Payments;
 using ECommerPipeline.Application.Products;
 using ECommerPipeline.Application.Reports;
 using ECommerPipeline.Infrastructure.Auth;
@@ -11,6 +12,7 @@ using ECommerPipeline.Infrastructure.Etl;
 using ECommerPipeline.Infrastructure.Import;
 using ECommerPipeline.Infrastructure.Initialization;
 using ECommerPipeline.Infrastructure.Orders;
+using ECommerPipeline.Infrastructure.Payments;
 using ECommerPipeline.Infrastructure.Persistence.Olap;
 using ECommerPipeline.Infrastructure.Persistence.Oltp;
 using ECommerPipeline.Infrastructure.Products;
@@ -50,6 +52,13 @@ public static class DependencyInjection
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IReportService, ReportService>();
         services.AddScoped<IImportService, ExcelImportService>();
+
+        // Payments — provider-agnostic gateways resolved by PaymentMethod.
+        services.Configure<PaymentOptions>(config.GetSection(PaymentOptions.SectionName));
+        services.AddHttpClient(); // MoMo create is a server-to-server POST
+        services.AddScoped<IPaymentGateway, VnPayGateway>();
+        services.AddScoped<IPaymentGateway, MomoGateway>();
+        services.AddScoped<IPaymentService, PaymentService>();
 
         // Auth
         services.Configure<JwtOptions>(config.GetSection(JwtOptions.SectionName));
