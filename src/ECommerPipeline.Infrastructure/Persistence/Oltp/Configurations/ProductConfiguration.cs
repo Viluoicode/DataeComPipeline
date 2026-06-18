@@ -15,6 +15,7 @@ public class ProductConfiguration : IEntityTypeConfiguration<Product>
         e.Property(x => x.Category).HasMaxLength(100).IsRequired();
         e.Property(x => x.Brand).HasMaxLength(100);
         e.Property(x => x.Price).HasColumnType("decimal(18,2)");
+        e.Property(x => x.RowVersion).IsRowVersion();
         e.HasIndex(x => x.Sku).IsUnique();
         e.HasIndex(x => x.Category);
     }

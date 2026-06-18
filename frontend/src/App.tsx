@@ -13,6 +13,7 @@ import { Landing } from './pages/public/Landing'
 import { Shop } from './pages/public/Shop'
 import { ProductDetail } from './pages/public/ProductDetail'
 import { Checkout } from './pages/public/Checkout'
+import { PaymentReturn } from './pages/public/PaymentReturn'
 import { MyOrders } from './pages/public/MyOrders'
 import { Login } from './pages/public/Login'
 import { Register } from './pages/public/Register'
@@ -47,6 +48,8 @@ export default function App() {
               <Route path="/shop/:id"       element={<ProductDetail />} />
               <Route path="/login"          element={<Login />} />
               <Route path="/register"       element={<Register />} />
+              {/* Gateway redirect lands here (public — session is restored from storage) */}
+              <Route path="/payment-result" element={<PaymentReturn />} />
 
               {/* Logged-in customer area */}
               <Route element={<ProtectedRoute />}>
