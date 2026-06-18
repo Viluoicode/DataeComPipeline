@@ -38,15 +38,38 @@ export const OrderStatusLabel: Record<number, OrderStatus> = {
   5: 'Cancelled',
 }
 
+// Mirrors Domain/Enums/PaymentMethod.cs and PaymentStatus.cs (1-based).
+export const PaymentMethod = { Cod: 1, VnPay: 2, Momo: 3 } as const
+export type PaymentMethodValue = (typeof PaymentMethod)[keyof typeof PaymentMethod]
+
+export const PaymentMethodLabel: Record<number, string> = {
+  1: 'COD', 2: 'VNPay', 3: 'MoMo',
+}
+
+export const PaymentStatusLabel: Record<number, string> = {
+  1: 'Chưa thanh toán',
+  2: 'Đang chờ thanh toán',
+  3: 'Đã thanh toán',
+  4: 'Thanh toán thất bại',
+  5: 'Đã hoàn tiền',
+}
+
 export interface CreateOrderRequest {
   customerId: number
   items: { productId: number; quantity: number }[]
+  shipFullName?: string
+  shipPhone?: string
+  shipAddress?: string
+  note?: string
+  paymentMethod?: PaymentMethodValue
 }
 
 export interface OrderCreatedResponse {
   orderId: number
   orderNumber: string
   totalAmount: number
+  paymentMethod: number
+  paymentStatus: number
 }
 
 export interface PagedResult<T> {
@@ -64,6 +87,7 @@ export interface OrderListItem {
   customerName: string
   orderDate: string
   status: number
+  paymentStatus: number
   totalAmount: number
   itemCount: number
 }
@@ -77,6 +101,14 @@ export interface OrderItemDetail {
   lineTotal: number
 }
 
+export interface OrderEvent {
+  fromStatus: number | null
+  toStatus: number
+  actorCustomerId: number | null
+  reason: string | null
+  at: string
+}
+
 export interface OrderDetail {
   id: number
   orderNumber: string
@@ -85,8 +117,16 @@ export interface OrderDetail {
   customerEmail: string
   orderDate: string
   status: number
+  paymentMethod: number
+  paymentStatus: number
+  shipFullName: string | null
+  shipPhone: string | null
+  shipAddress: string | null
+  note: string | null
   totalAmount: number
   items: OrderItemDetail[]
+  events: OrderEvent[]
+  nextStatuses: number[]
 }
 
 // ---------------- Customers / Products ----------------

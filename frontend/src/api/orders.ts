@@ -27,6 +27,14 @@ export const ordersApi = {
 
   getById: (id: number) =>
     api.get<OrderDetail>(`/api/orders/${id}`).then(r => r.data),
+
+  // Staff/Admin: advance the order along the fulfilment state machine.
+  updateStatus: (id: number, status: number, reason?: string) =>
+    api.patch<OrderDetail>(`/api/orders/${id}/status`, { status, reason }).then(r => r.data),
+
+  // Customer: cancel own pending order (restocks items).
+  cancel: (id: number) =>
+    api.post<OrderDetail>(`/api/orders/${id}/cancel`).then(r => r.data),
 }
 
 export const adminApi = {

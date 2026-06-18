@@ -99,6 +99,104 @@ public class OrderServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_writes_outbox_message()
+    {
+        await using var db = NewContext();
+        await SeedProductsAsync(db);
+        var sut = new OrderService(db);
+
+        var created = await sut.CreateAsync(new CreateOrderRequest(
+            CustomerId: 1, Items: new List<CreateOrderItem> { new(ProductId: 1, Quantity: 1) }));
+
+        var outbox = await db.OutboxMessages.SingleAsync();
+        outbox.EventType.Should().Be("OrderPlaced");
+        outbox.OrderId.Should().Be(created.OrderId);
+        outbox.ProcessedAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task CreateAsync_decrements_stock()
+    {
+        await using var db = NewContext();
+        await SeedProductsAsync(db);
+        var sut = new OrderService(db);
+
+        await sut.CreateAsync(new CreateOrderRequest(
+            CustomerId: 1,
+            Items: new List<CreateOrderItem> { new(ProductId: 1, Quantity: 3) }));
+
+        var product = await db.Products.SingleAsync(p => p.Id == 1);
+        product.StockQuantity.Should().Be(97);   // 100 - 3
+    }
+
+    [Fact]
+    public async Task CreateAsync_rejects_when_insufficient_stock()
+    {
+        await using var db = NewContext();
+        await SeedProductsAsync(db);
+        var sut = new OrderService(db);
+
+        var act = () => sut.CreateAsync(new CreateOrderRequest(
+            CustomerId: 1,
+            Items: new List<CreateOrderItem> { new(ProductId: 2, Quantity: 51) })); // only 50 in stock
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Insufficient stock*");
+
+        // No order persisted and stock untouched.
+        (await db.Orders.CountAsync()).Should().Be(0);
+        (await db.Products.SingleAsync(p => p.Id == 2)).StockQuantity.Should().Be(50);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_rejects_invalid_transition()
+    {
+        await using var db = NewContext();
+        await SeedProductsAsync(db);
+        var created = await new OrderService(db).CreateAsync(new CreateOrderRequest(
+            CustomerId: 1, Items: new List<CreateOrderItem> { new(ProductId: 1, Quantity: 1) }));
+        var sut = new OrderService(db);
+
+        // Pending → Shipped is not allowed (must go through Confirmed first).
+        var act = () => sut.UpdateStatusAsync(created.OrderId, OrderStatus.Shipped, actorCustomerId: 1, reason: null);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Cannot change order status*");
+    }
+
+    [Fact]
+    public async Task CancelByCustomerAsync_restocks_and_marks_cancelled()
+    {
+        await using var db = NewContext();
+        await SeedProductsAsync(db);
+        db.Customers.Add(new Customer { Id = 1, FullName = "A", Email = "a@test.com" });
+        await db.SaveChangesAsync();
+        var created = await new OrderService(db).CreateAsync(new CreateOrderRequest(
+            CustomerId: 1, Items: new List<CreateOrderItem> { new(ProductId: 1, Quantity: 4) }));
+        var sut = new OrderService(db);
+
+        var result = await sut.CancelByCustomerAsync(created.OrderId, customerId: 1, reason: "changed mind");
+
+        result.Status.Should().Be(OrderStatus.Cancelled);
+        (await db.Products.SingleAsync(p => p.Id == 1)).StockQuantity.Should().Be(100); // 96 + 4 back
+        result.Events.Should().Contain(e => e.ToStatus == OrderStatus.Cancelled);
+    }
+
+    [Fact]
+    public async Task CancelByCustomerAsync_rejects_non_owner()
+    {
+        await using var db = NewContext();
+        await SeedProductsAsync(db);
+        var created = await new OrderService(db).CreateAsync(new CreateOrderRequest(
+            CustomerId: 1, Items: new List<CreateOrderItem> { new(ProductId: 1, Quantity: 1) }));
+        var sut = new OrderService(db);
+
+        var act = () => sut.CancelByCustomerAsync(created.OrderId, customerId: 999, reason: null);
+
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+    }
+
+    [Fact]
     public async Task GetPagedAsync_filters_by_status()
     {
         await using var db = NewContext();
