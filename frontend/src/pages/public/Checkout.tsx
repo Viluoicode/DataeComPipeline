@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import {
@@ -9,8 +9,6 @@ import {
 import { useCart } from '../../contexts/CartContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { ordersApi } from '../../api/orders'
-import { paymentsApi } from '../../api/payments'
-import { PaymentMethod, type PaymentMethodValue } from '../../types/api'
 import { formatVnd, productImage } from '../../lib/format'
 
 export function Checkout() {
@@ -27,13 +25,6 @@ export function Checkout() {
     address:  '',
     note:     '',
   })
-
-  const [method, setMethod] = useState<PaymentMethodValue>(PaymentMethod.Cod)
-  const [avail, setAvail] = useState<{ vnpay: boolean; momo: boolean }>({ vnpay: false, momo: false })
-
-  useEffect(() => {
-    paymentsApi.methods().then(setAvail).catch(() => { /* leave online disabled */ })
-  }, [])
 
   if (success) {
     return (
@@ -96,23 +87,7 @@ export function Checkout() {
       const res = await ordersApi.create({
         customerId: user.id,
         items: items.map(i => ({ productId: i.product.id, quantity: i.quantity })),
-        shipFullName: form.fullName.trim(),
-        shipPhone: form.phone.trim(),
-        shipAddress: form.address.trim(),
-        note: form.note.trim() || undefined,
-        paymentMethod: method,
       })
-
-      // Online methods: create a gateway session and redirect the browser to it.
-      // The order is already saved (Pending/Unpaid); it settles via the gateway
-      // return/IPN callback. COD: done immediately.
-      if (method !== PaymentMethod.Cod) {
-        clear()
-        const pay = await paymentsApi.create(res.orderId)
-        window.location.href = pay.redirectUrl
-        return
-      }
-
       setSuccess({ orderId: res.orderId, orderNumber: res.orderNumber, total: res.totalAmount })
       clear()
       toast.success('Order placed!')
@@ -171,34 +146,12 @@ export function Checkout() {
             <h2 className="text-lg font-semibold text-gray-50 mb-4">Phương thức thanh toán</h2>
             <div className="space-y-2 text-sm text-gray-300">
               <label className="flex items-center gap-3 p-3 rounded-md bg-gray-800 border border-gray-700 cursor-pointer">
-                <input
-                  type="radio" name="payment" className="accent-blue-500"
-                  checked={method === PaymentMethod.Cod}
-                  onChange={() => setMethod(PaymentMethod.Cod)}
-                />
-                COD — Thanh toán khi nhận hàng
+                <input type="radio" name="payment" defaultChecked className="accent-blue-500" />
+                COD — Thanh toán khi nhận hàng <span className="text-xs text-gray-500 ml-auto">(mock)</span>
               </label>
-
-              <label className={`flex items-center gap-3 p-3 rounded-md border ${
-                avail.vnpay ? 'bg-gray-800 border-gray-700 cursor-pointer' : 'bg-gray-800/30 border-gray-800 cursor-not-allowed opacity-50'}`}>
-                <input
-                  type="radio" name="payment" className="accent-blue-500"
-                  disabled={!avail.vnpay}
-                  checked={method === PaymentMethod.VnPay}
-                  onChange={() => setMethod(PaymentMethod.VnPay)}
-                />
-                VNPay {avail.vnpay ? '(sandbox)' : '— chưa cấu hình'}
-              </label>
-
-              <label className={`flex items-center gap-3 p-3 rounded-md border ${
-                avail.momo ? 'bg-gray-800 border-gray-700 cursor-pointer' : 'bg-gray-800/30 border-gray-800 cursor-not-allowed opacity-50'}`}>
-                <input
-                  type="radio" name="payment" className="accent-blue-500"
-                  disabled={!avail.momo}
-                  checked={method === PaymentMethod.Momo}
-                  onChange={() => setMethod(PaymentMethod.Momo)}
-                />
-                MoMo {avail.momo ? '(test)' : '— chưa cấu hình'}
+              <label className="flex items-center gap-3 p-3 rounded-md bg-gray-800/30 border border-gray-800 cursor-not-allowed opacity-50">
+                <input type="radio" name="payment" disabled className="accent-blue-500" />
+                Thẻ tín dụng — Coming soon
               </label>
             </div>
           </div>

@@ -13,19 +13,16 @@ using ECommerPipeline.Application.Customers;
 using ECommerPipeline.Application.Import;
 using ECommerPipeline.Application.Orders;
 using ECommerPipeline.Application.Orders.DTOs;
-using ECommerPipeline.Application.Payments;
 using ECommerPipeline.Application.Products;
 using ECommerPipeline.Application.Reports;
 using ECommerPipeline.Domain.Enums;
 using ECommerPipeline.Infrastructure;
 using ECommerPipeline.Application.Orders.Validators;
 using ECommerPipeline.Infrastructure.Initialization;
-using ECommerPipeline.Infrastructure.Payments;
 using FluentValidation;
 using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -59,7 +56,6 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IEtlNotifier, SignalREtlNotifier>();
-builder.Services.AddSingleton<ICustomerNotifier, SignalRCustomerNotifier>();
 
 // HttpClient to the AI Data Analyst service (NL→SQL on the Gold layer).
 // The admin Chat UI calls our /api/ask, which proxies to the analyst — so the
@@ -285,7 +281,6 @@ app.UseStaticFiles();
 
 app.MapHealthChecks("/health");
 app.MapHub<EtlNotificationHub>("/hub/etl");
-app.MapHub<NotificationHub>("/hub/notifications");
 
 // ============================================================
 //  Auth — register / login / refresh / me
@@ -376,113 +371,6 @@ app.MapGet("/api/orders/{id:long}", async (long id, IOrderService svc, Cancellat
     var detail = await svc.GetByIdAsync(id, ct);
     return detail is null ? Results.NotFound() : Results.Ok(detail);
 }).WithTags("Orders");
-
-// Staff/Admin advance an order through the fulfilment state machine
-// (Pending→Confirmed→Shipped→Delivered, or →Cancelled). Invalid jumps are
-// rejected by the service (400). Cancelling restocks the items.
-app.MapPatch("/api/orders/{id:long}/status", async (
-        long id,
-        UpdateOrderStatusRequest req,
-        ClaimsPrincipal user,
-        IOrderService svc,
-        CancellationToken ct) =>
-{
-    var idStr = user.FindFirstValue("sub") ?? user.FindFirstValue(ClaimTypes.NameIdentifier);
-    long? actorId = long.TryParse(idStr, out var aid) ? aid : null;
-    return Results.Ok(await svc.UpdateStatusAsync(id, req.Status, actorId, req.Reason, ct));
-}).RequireAuthorization(p => p.RequireRole("Admin", "Staff")).WithTags("Orders");
-
-// A customer cancels their own order while it is still Pending (restocks items).
-app.MapPost("/api/orders/{id:long}/cancel", async (
-        long id,
-        ClaimsPrincipal user,
-        IOrderService svc,
-        CancellationToken ct) =>
-{
-    var idStr = user.FindFirstValue("sub") ?? user.FindFirstValue(ClaimTypes.NameIdentifier);
-    if (!long.TryParse(idStr, out var customerId)) return Results.Unauthorized();
-    return Results.Ok(await svc.CancelByCustomerAsync(id, customerId, null, ct));
-}).RequireAuthorization().WithTags("Orders");
-
-// ============================================================
-//  Payments — VNPay / MoMo (sandbox)
-//  Flow: POST create → redirect to gateway → gateway returns the browser to our
-//  /return (redirects to the SPA result page) AND server-to-server to /ipn (the
-//  authoritative settlement). Both run through the same idempotent handler.
-// ============================================================
-static Dictionary<string, string> QueryToDict(IQueryCollection q) =>
-    q.ToDictionary(kv => kv.Key, kv => kv.Value.ToString());
-
-string PaymentRedirect(IOptions<PaymentOptions> opt, PaymentResultDto r)
-{
-    var b = opt.Value.FrontendResultUrl;
-    var sep = b.Contains('?') ? "&" : "?";
-    return $"{b}{sep}orderId={r.OrderId}&success={r.Success.ToString().ToLowerInvariant()}";
-}
-
-// Which online methods are configured — lets the storefront enable/disable
-// the VNPay/MoMo radios instead of failing at create time.
-app.MapGet("/api/payments/methods", (IOptions<PaymentOptions> opt) =>
-    Results.Ok(new { vnpay = opt.Value.VnPay.IsConfigured, momo = opt.Value.Momo.IsConfigured }))
-   .WithTags("Payments");
-
-app.MapPost("/api/payments/{orderId:long}/create", async (
-        long orderId,
-        ClaimsPrincipal user,
-        HttpContext http,
-        IPaymentService svc,
-        CancellationToken ct) =>
-{
-    var idStr = user.FindFirstValue("sub") ?? user.FindFirstValue(ClaimTypes.NameIdentifier);
-    if (!long.TryParse(idStr, out var customerId)) return Results.Unauthorized();
-    var ip = http.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
-    var res = await svc.CreateAsync(orderId, customerId, ip, ct);
-    return Results.Ok(res);
-}).RequireAuthorization().WithTags("Payments");
-
-// VNPay browser return → process (idempotent) then bounce to the SPA result page.
-app.MapGet("/api/payments/vnpay/return", async (
-        HttpContext http, IPaymentService svc, IOptions<PaymentOptions> opt, CancellationToken ct) =>
-{
-    var result = await svc.HandleCallbackAsync(PaymentMethod.VnPay, QueryToDict(http.Request.Query), ct);
-    return Results.Redirect(PaymentRedirect(opt, result));
-}).WithTags("Payments");
-
-// VNPay server-to-server IPN (authoritative). Must reply with VNPay's RspCode JSON.
-app.MapGet("/api/payments/vnpay/ipn", async (
-        HttpContext http, IPaymentService svc, CancellationToken ct) =>
-{
-    var result = await svc.HandleCallbackAsync(PaymentMethod.VnPay, QueryToDict(http.Request.Query), ct);
-    var (rsp, msg) = result switch
-    {
-        { OrderId: null }                          => ("01", "Order not found"),
-        { Message: "Invalid signature." }          => ("97", "Invalid signature"),
-        { Message: "Amount mismatch." }            => ("04", "Invalid amount"),
-        _                                          => ("00", "Confirm Success"),
-    };
-    return Results.Json(new { RspCode = rsp, Message = msg });
-}).WithTags("Payments");
-
-// MoMo browser return → process then bounce to the SPA result page.
-app.MapGet("/api/payments/momo/return", async (
-        HttpContext http, IPaymentService svc, IOptions<PaymentOptions> opt, CancellationToken ct) =>
-{
-    var result = await svc.HandleCallbackAsync(PaymentMethod.Momo, QueryToDict(http.Request.Query), ct);
-    return Results.Redirect(PaymentRedirect(opt, result));
-}).WithTags("Payments");
-
-// MoMo IPN — JSON POST. Acknowledge with 204 (MoMo retries on non-2xx).
-app.MapPost("/api/payments/momo/ipn", async (
-        HttpContext http, IPaymentService svc, CancellationToken ct) =>
-{
-    using var doc = await JsonDocument.ParseAsync(http.Request.Body, cancellationToken: ct);
-    var data = doc.RootElement.EnumerateObject()
-        .ToDictionary(p => p.Name, p => p.Value.ValueKind == JsonValueKind.String
-            ? p.Value.GetString() ?? ""
-            : p.Value.GetRawText());
-    await svc.HandleCallbackAsync(PaymentMethod.Momo, data, ct);
-    return Results.NoContent();
-}).WithTags("Payments");
 
 // ============================================================
 //  Customers — lookup for order creation UI
