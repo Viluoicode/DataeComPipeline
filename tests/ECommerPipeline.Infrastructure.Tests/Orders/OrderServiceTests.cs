@@ -99,6 +99,22 @@ public class OrderServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_writes_outbox_message()
+    {
+        await using var db = NewContext();
+        await SeedProductsAsync(db);
+        var sut = new OrderService(db);
+
+        var created = await sut.CreateAsync(new CreateOrderRequest(
+            CustomerId: 1, Items: new List<CreateOrderItem> { new(ProductId: 1, Quantity: 1) }));
+
+        var outbox = await db.OutboxMessages.SingleAsync();
+        outbox.EventType.Should().Be("OrderPlaced");
+        outbox.OrderId.Should().Be(created.OrderId);
+        outbox.ProcessedAt.Should().BeNull();
+    }
+
+    [Fact]
     public async Task CreateAsync_decrements_stock()
     {
         await using var db = NewContext();

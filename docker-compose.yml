@@ -79,6 +79,13 @@ services:
       Payments__Momo__SecretKey:     ""
       Payments__Momo__ReturnUrl:     "http://localhost/api/payments/momo/return"
       Payments__Momo__IpnUrl:        "http://localhost/api/payments/momo/ipn"
+      # Transactional email via MailHog (dev SMTP sink). Open http://localhost:8025
+      # to read every order/payment email. Swap for real SMTP in production.
+      Email__Provider: "Smtp"
+      Email__Host:     "mailhog"
+      Email__Port:     "1025"
+      Email__FromEmail: "no-reply@ecompipeline.local"
+      Email__FromName:  "ECommerPipeline"
     ports:
       # Direct API access for debugging (frontend proxies via nginx anyway)
       - "5193:8080"
@@ -88,6 +95,15 @@ services:
       retries: 8
       start_period: 60s
       timeout: 5s
+
+  # ----- MailHog — dev SMTP sink (captures all outgoing email) ----------
+  # SMTP on :1025 (api sends here), web UI on http://localhost:8025 to read them.
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: ecom-mailhog
+    ports:
+      - "8025:8025"   # web UI
+      - "1025:1025"   # SMTP
 
   # ----- Frontend (Nginx + built SPA) -----------------------------------
   frontend:

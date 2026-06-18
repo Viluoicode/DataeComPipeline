@@ -11,6 +11,7 @@ using ECommerPipeline.Infrastructure.Customers;
 using ECommerPipeline.Infrastructure.Etl;
 using ECommerPipeline.Infrastructure.Import;
 using ECommerPipeline.Infrastructure.Initialization;
+using ECommerPipeline.Infrastructure.Notifications;
 using ECommerPipeline.Infrastructure.Orders;
 using ECommerPipeline.Infrastructure.Payments;
 using ECommerPipeline.Infrastructure.Persistence.Olap;
@@ -71,6 +72,16 @@ public static class DependencyInjection
         services.AddScoped<CompressColumnstoreJob>();
         services.AddScoped<DataQualityJob>();
 
+        // Notifications — transactional outbox dispatcher (email + in-app SignalR).
+        // Email defaults to a log-only sender so the stack runs with zero config;
+        // set Email:Provider=Smtp (MailHog/SendGrid) for real delivery.
+        services.Configure<EmailOptions>(config.GetSection(EmailOptions.SectionName));
+        if ((config["Email:Provider"] ?? "None").Equals("Smtp", StringComparison.OrdinalIgnoreCase))
+            services.AddScoped<IEmailSender, SmtpEmailSender>();
+        else
+            services.AddScoped<IEmailSender, NoOpEmailSender>();
+        services.AddScoped<OutboxDispatchJob>();
+
         // Bootstrap + dev utilities
         services.AddScoped<DatabaseInitializer>();
         services.AddScoped<ResetService>();
@@ -104,6 +115,7 @@ public static class DependencyInjection
         var etlCron      = config["Jobs:EtlCron"]      ?? "*/5 * * * *";       // every 5 min
         var compressCron = config["Jobs:CompressCron"] ?? "0 2 * * *";          // 2 AM daily
         var dqCron       = config["Jobs:DataQualityCron"] ?? "2-59/15 * * * *"; // every 15 min, offset
+        var outboxCron   = config["Jobs:OutboxCron"]   ?? "* * * * *";          // every minute
 
         manager.AddOrUpdate<EtlJob>(
             "sales-etl", j => j.RunAsync(CancellationToken.None), etlCron);
@@ -113,5 +125,8 @@ public static class DependencyInjection
 
         manager.AddOrUpdate<DataQualityJob>(
             "data-quality", j => j.RunAsync(CancellationToken.None), dqCron);
+
+        manager.AddOrUpdate<OutboxDispatchJob>(
+            "outbox-dispatch", j => j.RunAsync(CancellationToken.None), outboxCron);
     }
 }

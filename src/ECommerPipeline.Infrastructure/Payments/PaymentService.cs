@@ -1,6 +1,7 @@
 using ECommerPipeline.Application.Payments;
 using ECommerPipeline.Domain.Entities;
 using ECommerPipeline.Domain.Enums;
+using ECommerPipeline.Infrastructure.Notifications;
 using ECommerPipeline.Infrastructure.Persistence.Oltp;
 using Microsoft.EntityFrameworkCore;
 
@@ -115,6 +116,13 @@ public class PaymentService : IPaymentService
                     Reason = $"Auto-confirmed after {method} payment"
                 });
             }
+
+            // Transactional outbox → "payment succeeded" email + in-app notification.
+            _db.OutboxMessages.Add(new OutboxMessage
+            {
+                OrderId = order.Id,
+                EventType = OutboxEventTypes.PaymentSucceeded,
+            });
 
             await _db.SaveChangesAsync(ct);
             return new PaymentResultDto(true, order.Id, order.OrderNumber, PaymentStatus.Paid, "Payment successful.");

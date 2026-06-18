@@ -59,6 +59,7 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IEtlNotifier, SignalREtlNotifier>();
+builder.Services.AddSingleton<ICustomerNotifier, SignalRCustomerNotifier>();
 
 // HttpClient to the AI Data Analyst service (NL→SQL on the Gold layer).
 // The admin Chat UI calls our /api/ask, which proxies to the analyst — so the
@@ -284,6 +285,7 @@ app.UseStaticFiles();
 
 app.MapHealthChecks("/health");
 app.MapHub<EtlNotificationHub>("/hub/etl");
+app.MapHub<NotificationHub>("/hub/notifications");
 
 // ============================================================
 //  Auth — register / login / refresh / me

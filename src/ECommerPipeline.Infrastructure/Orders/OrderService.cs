@@ -1,8 +1,10 @@
+using System.Text.Json;
 using ECommerPipeline.Application.Common.DTOs;
 using ECommerPipeline.Application.Orders;
 using ECommerPipeline.Application.Orders.DTOs;
 using ECommerPipeline.Domain.Entities;
 using ECommerPipeline.Domain.Enums;
+using ECommerPipeline.Infrastructure.Notifications;
 using ECommerPipeline.Infrastructure.Persistence.Oltp;
 using Microsoft.EntityFrameworkCore;
 
@@ -75,6 +77,9 @@ public class OrderService : IOrderService
         });
 
         _db.Orders.Add(order);
+        // Transactional outbox: queued in the same save as the order so the
+        // "order placed" email/notification can't be lost (Order nav fills OrderId).
+        _db.OutboxMessages.Add(new OutboxMessage { Order = order, EventType = OutboxEventTypes.OrderPlaced });
         await SaveWithConcurrencyGuardAsync(ct);
 
         return new OrderCreatedResponse(
@@ -207,6 +212,12 @@ public class OrderService : IOrderService
             ToStatus = newStatus,
             ActorCustomerId = actorCustomerId,
             Reason = reason
+        });
+        _db.OutboxMessages.Add(new OutboxMessage
+        {
+            OrderId = order.Id,
+            EventType = OutboxEventTypes.OrderStatusChanged,
+            Payload = JsonSerializer.Serialize(new { from = (int)from, to = (int)newStatus }),
         });
     }
 

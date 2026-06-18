@@ -11,6 +11,7 @@ public interface IOltpDbContext
     DbSet<OrderItem> OrderItems { get; }
     DbSet<OrderEvent> OrderEvents { get; }
     DbSet<Payment> Payments { get; }
+    DbSet<OutboxMessage> OutboxMessages { get; }
     DbSet<RefreshToken> RefreshTokens { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
