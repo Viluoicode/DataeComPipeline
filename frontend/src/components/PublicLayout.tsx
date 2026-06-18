@@ -13,6 +13,7 @@ import {
 import clsx from 'clsx'
 import { useAuth } from '../contexts/AuthContext'
 import { useCart } from '../contexts/CartContext'
+import { useNotifications } from '../hooks/useNotifications'
 import { CartDrawer } from './CartDrawer'
 
 const navItems = [
@@ -23,6 +24,10 @@ const navItems = [
 export function PublicLayout() {
   const { user, logout } = useAuth()
   const { itemCount } = useCart()
+
+  // Live order/payment notifications pushed to this customer (toast on arrival).
+  useNotifications(user?.id ?? null)
+
   const [cartOpen, setCartOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [mobileNav, setMobileNav] = useState(false)
