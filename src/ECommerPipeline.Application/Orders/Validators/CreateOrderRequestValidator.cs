@@ -16,14 +16,6 @@ public class CreateOrderRequestValidator : AbstractValidator<CreateOrderRequest>
             .Must(items => items.Count <= 100).WithMessage("An order cannot contain more than 100 items.");
 
         RuleForEach(x => x.Items).SetValidator(new CreateOrderItemValidator());
-
-        // Shipping fields are optional at the API level (admin can create orders
-        // without them); the storefront checkout enforces name + address itself.
-        RuleFor(x => x.ShipFullName).MaximumLength(200);
-        RuleFor(x => x.ShipPhone).MaximumLength(40);
-        RuleFor(x => x.ShipAddress).MaximumLength(500);
-        RuleFor(x => x.Note).MaximumLength(1000);
-        RuleFor(x => x.PaymentMethod).IsInEnum();
     }
 }
 

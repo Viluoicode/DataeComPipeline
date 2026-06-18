@@ -18,7 +18,6 @@ public record OrderListItemDto(
     string CustomerName,
     DateTime OrderDate,
     OrderStatus Status,
-    PaymentStatus PaymentStatus,
     decimal TotalAmount,
     int ItemCount);
 
@@ -30,16 +29,8 @@ public record OrderDetailDto(
     string CustomerEmail,
     DateTime OrderDate,
     OrderStatus Status,
-    PaymentMethod PaymentMethod,
-    PaymentStatus PaymentStatus,
-    string? ShipFullName,
-    string? ShipPhone,
-    string? ShipAddress,
-    string? Note,
     decimal TotalAmount,
-    IReadOnlyList<OrderItemDetailDto> Items,
-    IReadOnlyList<OrderEventDto> Events,
-    IReadOnlyList<OrderStatus> NextStatuses);
+    IReadOnlyList<OrderItemDetailDto> Items);
 
 public record OrderItemDetailDto(
     long ProductId,
@@ -48,13 +39,3 @@ public record OrderItemDetailDto(
     int Quantity,
     decimal UnitPrice,
     decimal LineTotal);
-
-public record OrderEventDto(
-    OrderStatus? FromStatus,
-    OrderStatus ToStatus,
-    long? ActorCustomerId,
-    string? Reason,
-    DateTime At);
-
-/// Staff/Admin advance an order to the next valid fulfilment state.
-public record UpdateOrderStatusRequest(OrderStatus Status, string? Reason = null);

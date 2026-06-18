@@ -13,20 +13,10 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         e.Property(x => x.OrderNumber).HasMaxLength(40).IsRequired();
         e.Property(x => x.TotalAmount).HasColumnType("decimal(18,2)");
         e.Property(x => x.Status).HasConversion<int>();
-        e.Property(x => x.PaymentMethod).HasConversion<int>();
-        e.Property(x => x.PaymentStatus).HasConversion<int>();
-
-        e.Property(x => x.ShipFullName).HasMaxLength(200);
-        e.Property(x => x.ShipPhone).HasMaxLength(40);
-        e.Property(x => x.ShipAddress).HasMaxLength(500);
-        e.Property(x => x.Note).HasMaxLength(1000);
-
-        e.Property(x => x.RowVersion).IsRowVersion();
 
         e.HasIndex(x => x.OrderNumber).IsUnique();
         e.HasIndex(x => x.OrderDate);
         e.HasIndex(x => new { x.CustomerId, x.OrderDate });
-        e.HasIndex(x => x.Status);
 
         e.HasOne(x => x.Customer)
             .WithMany(c => c.Orders)
@@ -37,24 +27,6 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
             .WithOne(i => i.Order)
             .HasForeignKey(i => i.OrderId)
             .OnDelete(DeleteBehavior.Cascade);
-
-        e.HasMany(x => x.Events)
-            .WithOne(ev => ev.Order)
-            .HasForeignKey(ev => ev.OrderId)
-            .OnDelete(DeleteBehavior.Cascade);
-    }
-}
-
-public class OrderEventConfiguration : IEntityTypeConfiguration<OrderEvent>
-{
-    public void Configure(EntityTypeBuilder<OrderEvent> e)
-    {
-        e.ToTable("OrderEvents");
-        e.HasKey(x => x.Id);
-        e.Property(x => x.FromStatus).HasConversion<int>();
-        e.Property(x => x.ToStatus).HasConversion<int>();
-        e.Property(x => x.Reason).HasMaxLength(500);
-        e.HasIndex(x => x.OrderId);
     }
 }
 
