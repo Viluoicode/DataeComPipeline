@@ -2,6 +2,7 @@ using ECommerPipeline.Application.Payments;
 using ECommerPipeline.Domain.Entities;
 using ECommerPipeline.Domain.Enums;
 using ECommerPipeline.Infrastructure.Notifications;
+using ECommerPipeline.Infrastructure.Observability;
 using ECommerPipeline.Infrastructure.Persistence.Oltp;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,11 +12,15 @@ public class PaymentService : IPaymentService
 {
     private readonly OltpDbContext _db;
     private readonly IReadOnlyDictionary<PaymentMethod, IPaymentGateway> _gateways;
+    private readonly BusinessMetrics? _metrics;
 
-    public PaymentService(OltpDbContext db, IEnumerable<IPaymentGateway> gateways)
+    // BusinessMetrics is optional so direct unit-test construction stays simple.
+    public PaymentService(
+        OltpDbContext db, IEnumerable<IPaymentGateway> gateways, BusinessMetrics? metrics = null)
     {
         _db = db;
         _gateways = gateways.ToDictionary(g => g.Method);
+        _metrics = metrics;
     }
 
     public async Task<PaymentCreatedResponse> CreateAsync(
@@ -92,6 +97,7 @@ public class PaymentService : IPaymentService
             payment.ResponseCode = cb.ResponseCode;
             if (order.PaymentStatus == PaymentStatus.Pending) order.PaymentStatus = PaymentStatus.Failed;
             await _db.SaveChangesAsync(ct);
+            _metrics?.PaymentOutcome(false);
             return new PaymentResultDto(false, order.Id, order.OrderNumber, PaymentStatus.Failed, "Amount mismatch.");
         }
 
@@ -125,6 +131,7 @@ public class PaymentService : IPaymentService
             });
 
             await _db.SaveChangesAsync(ct);
+            _metrics?.PaymentOutcome(true);
             return new PaymentResultDto(true, order.Id, order.OrderNumber, PaymentStatus.Paid, "Payment successful.");
         }
 
@@ -133,6 +140,7 @@ public class PaymentService : IPaymentService
         payment.ResponseCode = cb.ResponseCode;
         if (order.PaymentStatus == PaymentStatus.Pending) order.PaymentStatus = PaymentStatus.Failed;
         await _db.SaveChangesAsync(ct);
+        _metrics?.PaymentOutcome(false);
         return new PaymentResultDto(false, order.Id, order.OrderNumber, PaymentStatus.Failed, "Payment failed or cancelled.");
     }
 }

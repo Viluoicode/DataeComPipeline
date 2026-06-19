@@ -1,0 +1,12 @@
+# Prometheus scrape config for the ECommerPipeline stack.
+# The API exposes OpenTelemetry metrics (ASP.NET Core + runtime + custom business
+# meters) at /metrics via the Prometheus exporter.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: ecom-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['api:8080']
