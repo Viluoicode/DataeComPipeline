@@ -5,6 +5,7 @@ using ECommerPipeline.Application.Orders.DTOs;
 using ECommerPipeline.Domain.Entities;
 using ECommerPipeline.Domain.Enums;
 using ECommerPipeline.Infrastructure.Notifications;
+using ECommerPipeline.Infrastructure.Observability;
 using ECommerPipeline.Infrastructure.Persistence.Oltp;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,8 +14,14 @@ namespace ECommerPipeline.Infrastructure.Orders;
 public class OrderService : IOrderService
 {
     private readonly OltpDbContext _db;
+    private readonly BusinessMetrics? _metrics;
 
-    public OrderService(OltpDbContext db) => _db = db;
+    // BusinessMetrics is optional so direct unit-test construction stays simple.
+    public OrderService(OltpDbContext db, BusinessMetrics? metrics = null)
+    {
+        _db = db;
+        _metrics = metrics;
+    }
 
     public async Task<OrderCreatedResponse> CreateAsync(CreateOrderRequest request, CancellationToken ct = default)
     {
@@ -81,6 +88,8 @@ public class OrderService : IOrderService
         // "order placed" email/notification can't be lost (Order nav fills OrderId).
         _db.OutboxMessages.Add(new OutboxMessage { Order = order, EventType = OutboxEventTypes.OrderPlaced });
         await SaveWithConcurrencyGuardAsync(ct);
+
+        _metrics?.OrderCreated();
 
         return new OrderCreatedResponse(
             order.Id, order.OrderNumber, order.TotalAmount, order.PaymentMethod, order.PaymentStatus);

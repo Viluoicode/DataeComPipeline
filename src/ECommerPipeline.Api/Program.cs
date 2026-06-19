@@ -20,14 +20,18 @@ using ECommerPipeline.Application.Reports;
 using ECommerPipeline.Domain.Enums;
 using ECommerPipeline.Infrastructure;
 using ECommerPipeline.Application.Orders.Validators;
+using ECommerPipeline.Api.Health;
 using ECommerPipeline.Infrastructure.Initialization;
+using ECommerPipeline.Infrastructure.Observability;
 using ECommerPipeline.Infrastructure.Payments;
 using FluentValidation;
 using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
@@ -58,7 +62,16 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
-builder.Services.AddSignalR();
+// Redis is OPTIONAL: when ConnectionStrings:Redis (or Redis:Configuration) is set,
+// it becomes the distributed cache + SignalR backplane, enabling horizontal scale
+// (multiple API instances share cache and SignalR groups). Unset → in-memory
+// fallbacks, so local/dev runs with zero extra infrastructure.
+var redisConn = builder.Configuration.GetConnectionString("Redis")
+                ?? builder.Configuration["Redis:Configuration"];
+
+var signalR = builder.Services.AddSignalR();
+if (!string.IsNullOrWhiteSpace(redisConn))
+    signalR.AddStackExchangeRedis(redisConn);
 builder.Services.AddSingleton<IEtlNotifier, SignalREtlNotifier>();
 builder.Services.AddSingleton<ICustomerNotifier, SignalRCustomerNotifier>();
 
@@ -71,7 +84,12 @@ builder.Services.AddHttpClient("analyst", c =>
     c.Timeout = TimeSpan.FromSeconds(60);
 });
 
-// In-memory cache for AI answers (skip repeat LLM calls for identical questions).
+// Distributed cache for AI answers (skip repeat LLM calls). Redis when configured,
+// else an in-memory IDistributedCache so the same code path works everywhere.
+if (!string.IsNullOrWhiteSpace(redisConn))
+    builder.Services.AddStackExchangeRedisCache(o => o.Configuration = redisConn);
+else
+    builder.Services.AddDistributedMemoryCache();
 builder.Services.AddMemoryCache();
 
 // In-memory AI usage metrics (refusal rate, cache-hit rate, latency).
@@ -115,6 +133,7 @@ builder.Services.AddRateLimiter(options =>
     {
         var path = httpContext.Request.Path;
         if (path.StartsWithSegments("/health") ||
+            path.StartsWithSegments("/metrics") ||
             path.StartsWithSegments("/hangfire") ||
             path.StartsWithSegments("/hub"))
             return RateLimitPartition.GetNoLimiter("exempt");
@@ -238,6 +257,17 @@ builder.Services.AddOpenTelemetry()
             new KeyValuePair<string, object>("deployment.environment",
                 builder.Environment.EnvironmentName),
         }))
+    .WithMetrics(metrics =>
+    {
+        // Standard request/runtime metrics + our custom business meter, exposed
+        // for Prometheus to scrape at /metrics (see MapPrometheusScrapingEndpoint).
+        metrics
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddRuntimeInstrumentation()
+            .AddMeter(BusinessMetrics.MeterName)
+            .AddPrometheusExporter();
+    })
     .WithTracing(tracing =>
     {
         tracing
@@ -248,6 +278,7 @@ builder.Services.AddOpenTelemetry()
                 // Don't trace noisy endpoints
                 o.Filter = ctx =>
                     !ctx.Request.Path.StartsWithSegments("/health") &&
+                    !ctx.Request.Path.StartsWithSegments("/metrics") &&
                     !ctx.Request.Path.StartsWithSegments("/hangfire");
                 o.RecordException = true;
             })
@@ -273,7 +304,11 @@ builder.Services.AddHealthChecks()
     .AddSqlServer(builder.Configuration.GetConnectionString("OltpConnection")!,
                   name: "oltp", tags: new[] { "db", "oltp" })
     .AddSqlServer(builder.Configuration.GetConnectionString("OlapConnection")!,
-                  name: "olap", tags: new[] { "db", "olap" });
+                  name: "olap", tags: new[] { "db", "olap" })
+    // These report Degraded (not Unhealthy) so /health stays 200 for the container
+    // probe; job/ETL outages still surface in the health payload.
+    .AddCheck<HangfireHealthCheck>("hangfire", tags: new[] { "jobs" })
+    .AddCheck<EtlFreshnessHealthCheck>("etl-freshness", tags: new[] { "etl" });
 
 var app = builder.Build();
 
@@ -341,6 +376,7 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapHealthChecks("/health");
+app.MapPrometheusScrapingEndpoint();   // GET /metrics — Prometheus scrape target
 app.MapHub<EtlNotificationHub>("/hub/etl");
 app.MapHub<NotificationHub>("/hub/notifications");
 
@@ -639,7 +675,7 @@ app.MapGet("/api/reports/low-stock",
 app.MapPost("/api/ask", async (
         AskRequest req,
         IHttpClientFactory factory,
-        IMemoryCache cache,
+        IDistributedCache cache,
         AiMetrics metrics,
         ILogger<Program> logger,
         HttpContext http,
@@ -655,8 +691,10 @@ app.MapPost("/api/ask", async (
     var includeSummary = req.IncludeSummary ?? true;
     var cacheKey = $"ask::{includeSummary}::{req.Question.Trim().ToLowerInvariant()}";
 
-    // Cache hit — return without calling the LLM at all.
-    if (cache.TryGetValue(cacheKey, out string? cachedJson) && cachedJson is not null)
+    // Cache hit — return without calling the LLM at all. (Distributed: Redis when
+    // configured so cache is shared across API instances, else in-memory.)
+    var cachedJson = await cache.GetStringAsync(cacheKey, ct);
+    if (cachedJson is not null)
     {
         metrics.RecordCacheHit();
         logger.LogInformation("AI ask (cache hit) by {User}: {Question}", user, req.Question);
@@ -696,7 +734,8 @@ app.MapPost("/api/ask", async (
 
         // Cache only successful answers (never cache a transient failure).
         if (resp.IsSuccessStatusCode)
-            cache.Set(cacheKey, json, TimeSpan.FromMinutes(10));
+            await cache.SetStringAsync(cacheKey, json,
+                new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10) }, ct);
 
         return Results.Content(json, "application/json", statusCode: (int)resp.StatusCode);
     }

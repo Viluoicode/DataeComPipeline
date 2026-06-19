@@ -85,3 +85,30 @@ jobs:
 
       - name: Build frontend image
         run: docker build -f frontend/Dockerfile -t ecom-frontend:ci ./frontend
+
+      # ---- Supply-chain: scan the API image + emit an SBOM ----
+      # Report-only for now (exit-code 0). Flip to exit-code 1 once the base
+      # image is patched, to gate merges on HIGH/CRITICAL CVEs.
+      - name: Scan API image (Trivy)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ecom-api:ci
+          format: table
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+
+      - name: Generate SBOM (Syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ecom-api:ci
+          format: spdx-json
+          output-file: sbom-api.spdx.json
+
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-api
+          path: sbom-api.spdx.json
+          retention-days: 14

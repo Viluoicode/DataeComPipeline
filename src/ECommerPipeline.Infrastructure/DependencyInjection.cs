@@ -11,7 +11,9 @@ using ECommerPipeline.Infrastructure.Customers;
 using ECommerPipeline.Infrastructure.Etl;
 using ECommerPipeline.Infrastructure.Import;
 using ECommerPipeline.Infrastructure.Initialization;
+using ECommerPipeline.Infrastructure.Maintenance;
 using ECommerPipeline.Infrastructure.Notifications;
+using ECommerPipeline.Infrastructure.Observability;
 using ECommerPipeline.Infrastructure.Orders;
 using ECommerPipeline.Infrastructure.Payments;
 using ECommerPipeline.Infrastructure.Persistence.Olap;
@@ -46,6 +48,9 @@ public static class DependencyInjection
         services.Configure<OlapOptions>(opt =>
             opt.OlapConnection = config.GetConnectionString("OlapConnection")!);
         services.AddSingleton<IOlapConnectionFactory, OlapConnectionFactory>();
+
+        // Custom business metrics (Prometheus via OTel). Singleton — one meter.
+        services.AddSingleton<BusinessMetrics>();
 
         // Services
         services.AddScoped<IOrderService, OrderService>();
@@ -82,6 +87,9 @@ public static class DependencyInjection
             services.AddScoped<IEmailSender, NoOpEmailSender>();
         services.AddScoped<OutboxDispatchJob>();
 
+        // Nightly OLTP backup (no-ops unless Backup:Directory is configured).
+        services.AddScoped<BackupDatabaseJob>();
+
         // Bootstrap + dev utilities
         services.AddScoped<DatabaseInitializer>();
         services.AddScoped<ResetService>();
@@ -116,6 +124,7 @@ public static class DependencyInjection
         var compressCron = config["Jobs:CompressCron"] ?? "0 2 * * *";          // 2 AM daily
         var dqCron       = config["Jobs:DataQualityCron"] ?? "2-59/15 * * * *"; // every 15 min, offset
         var outboxCron   = config["Jobs:OutboxCron"]   ?? "* * * * *";          // every minute
+        var backupCron   = config["Jobs:BackupCron"]   ?? "0 4 * * *";           // 4 AM daily
 
         manager.AddOrUpdate<EtlJob>(
             "sales-etl", j => j.RunAsync(CancellationToken.None), etlCron);
@@ -128,5 +137,8 @@ public static class DependencyInjection
 
         manager.AddOrUpdate<OutboxDispatchJob>(
             "outbox-dispatch", j => j.RunAsync(CancellationToken.None), outboxCron);
+
+        manager.AddOrUpdate<BackupDatabaseJob>(
+            "db-backup", j => j.RunAsync(CancellationToken.None), backupCron);
     }
 }
