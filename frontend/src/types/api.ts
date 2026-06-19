@@ -26,6 +26,32 @@ export interface TopProductRow {
   totalRevenue: number
 }
 
+// ---- Phase 4: business-state analytics ----
+export interface PaymentMethodSalesRow {
+  paymentMethod: number
+  methodName: string
+  orderCount: number
+  paidOrderCount: number
+  totalRevenue: number
+  paidRevenue: number
+}
+
+export interface OrderFunnelRow {
+  stage: string
+  stageOrder: number
+  orderCount: number
+}
+
+export interface ProductInventoryRow {
+  productId: number
+  sku: string
+  productName: string
+  category: string
+  currentStock: number
+  unitsSold: number
+  lowStock: boolean
+}
+
 // ---------------- Orders ----------------
 export type OrderStatus = 'Pending' | 'Confirmed' | 'Shipped' | 'Delivered' | 'Cancelled'
 

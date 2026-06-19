@@ -203,14 +203,33 @@ public class DatabaseInitializer
                 var orderDate = now.AddDays(-rng.Next(0, 90)).AddMinutes(-rng.Next(0, 1440));
                 var totalIndex = i + k;
 
+                var status = (OrderStatus)rng.Next(1, 5);   // Pending..Delivered
+
+                // Realistic, internally-consistent payment distribution so the
+                // Phase 4 payment/funnel analytics have meaningful data:
+                //   ~50% COD, ~30% VNPay, ~20% MoMo.
+                var pmRoll = rng.Next(100);
+                var method = pmRoll < 50 ? PaymentMethod.Cod
+                           : pmRoll < 80 ? PaymentMethod.VnPay
+                           : PaymentMethod.Momo;
+                PaymentStatus payStatus;
+                if (method == PaymentMethod.Cod)
+                    payStatus = status == OrderStatus.Delivered ? PaymentStatus.Paid : PaymentStatus.Unpaid;
+                else // online orders that progressed past Pending must have been paid
+                    payStatus = status >= OrderStatus.Confirmed ? PaymentStatus.Paid
+                              : rng.Next(100) < 70 ? PaymentStatus.Paid
+                              : rng.Next(2) == 0 ? PaymentStatus.Pending : PaymentStatus.Failed;
+
                 orders.Add(new Order
                 {
-                    OrderNumber = $"ORD-SEED-{totalIndex:D7}",
-                    CustomerId  = customer.Id,
-                    OrderDate   = orderDate,
-                    Status      = (OrderStatus)rng.Next(1, 5),
-                    Items       = items,
-                    TotalAmount = items.Sum(x => x.LineTotal)
+                    OrderNumber   = $"ORD-SEED-{totalIndex:D7}",
+                    CustomerId    = customer.Id,
+                    OrderDate     = orderDate,
+                    Status        = status,
+                    PaymentMethod = method,
+                    PaymentStatus = payStatus,
+                    Items         = items,
+                    TotalAmount   = items.Sum(x => x.LineTotal)
                 });
             }
 
