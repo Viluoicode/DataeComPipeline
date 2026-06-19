@@ -2,6 +2,7 @@ using System.Data;
 using System.Diagnostics;
 using Dapper;
 using ECommerPipeline.Application.Common.Interfaces;
+using ECommerPipeline.Domain.Enums;
 using ECommerPipeline.Infrastructure.Persistence.Oltp;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -162,6 +163,14 @@ public class SalesEtlPipeline : IEtlPipeline
             await RefreshGoldLayerAsync(conn, ct);
             goldActivity?.SetTag("duration.ms", goldSw.ElapsedMilliseconds);
             _logger.LogInformation("Gold layer refreshed in {Ms} ms", goldSw.ElapsedMilliseconds);
+        }
+
+        // Business-state gold (payment mix / funnel / inventory) — refreshed EVERY
+        // run from CURRENT OLTP state, since order status/payment/stock are mutable
+        // and the append-only fact can't reflect changes made after first ingest.
+        using (ActivitySource.StartActivity("etl.gold.business"))
+        {
+            await RefreshBusinessGoldAsync(conn, ct);
         }
 
         sw.Stop();
@@ -530,5 +539,123 @@ public class SalesEtlPipeline : IEtlPipeline
         ";
 
         await conn.ExecuteAsync(new CommandDefinition(sql, commandTimeout: 300, cancellationToken: ct));
+    }
+
+    // ============================================================
+    //  BUSINESS-STATE GOLD — payment mix / funnel / inventory
+    //  Sourced from CURRENT OLTP state (orders + product stock) rather than the
+    //  append-only fact, because PaymentStatus / OrderStatus / StockQuantity are
+    //  mutable after first ingest. Truncate + repopulate (small result sets).
+    // ============================================================
+    private const int LowStockThreshold = 20;
+
+    private static string PaymentMethodName(PaymentMethod m) => m switch
+    {
+        PaymentMethod.Cod   => "COD",
+        PaymentMethod.VnPay => "VNPay",
+        PaymentMethod.Momo  => "MoMo",
+        _ => m.ToString(),
+    };
+
+    private async Task RefreshBusinessGoldAsync(SqlConnection conn, CancellationToken ct)
+    {
+        // ---- gold.SalesByPaymentMethod ----
+        var byMethod = await _oltp.Orders.AsNoTracking()
+            .GroupBy(o => o.PaymentMethod)
+            .Select(g => new
+            {
+                Method         = g.Key,
+                OrderCount     = (long)g.Count(),
+                PaidOrderCount = (long)g.Count(o => o.PaymentStatus == PaymentStatus.Paid),
+                TotalRevenue   = g.Sum(o => o.TotalAmount),
+                PaidRevenue    = g.Sum(o => o.PaymentStatus == PaymentStatus.Paid ? o.TotalAmount : 0m),
+            })
+            .ToListAsync(ct);
+
+        await conn.ExecuteAsync(new CommandDefinition(
+            "TRUNCATE TABLE gold.SalesByPaymentMethod;", cancellationToken: ct));
+        if (byMethod.Count > 0)
+        {
+            await conn.ExecuteAsync(new CommandDefinition(@"
+                INSERT INTO gold.SalesByPaymentMethod
+                    (PaymentMethod, MethodName, OrderCount, PaidOrderCount, TotalRevenue, PaidRevenue)
+                VALUES (@PaymentMethod, @MethodName, @OrderCount, @PaidOrderCount, @TotalRevenue, @PaidRevenue);",
+                byMethod.Select(m => new
+                {
+                    PaymentMethod = (byte)m.Method,
+                    MethodName    = PaymentMethodName(m.Method),
+                    m.OrderCount,
+                    m.PaidOrderCount,
+                    m.TotalRevenue,
+                    m.PaidRevenue,
+                }).ToArray(), cancellationToken: ct));
+        }
+
+        // ---- gold.OrderFunnel ----
+        var statusCounts = await _oltp.Orders.AsNoTracking()
+            .GroupBy(o => o.Status)
+            .Select(g => new { Status = g.Key, Count = (long)g.Count() })
+            .ToListAsync(ct);
+        var paidCount = (long)await _oltp.Orders.AsNoTracking()
+            .CountAsync(o => o.PaymentStatus == PaymentStatus.Paid, ct);
+
+        long CountIn(params OrderStatus[] statuses) =>
+            statusCounts.Where(s => statuses.Contains(s.Status)).Sum(s => s.Count);
+
+        var funnel = new[]
+        {
+            new { Stage = "Placed",    StageOrder = (byte)1, OrderCount = statusCounts.Sum(s => s.Count) },
+            new { Stage = "Paid",      StageOrder = (byte)2, OrderCount = paidCount },
+            new { Stage = "Confirmed", StageOrder = (byte)3, OrderCount = CountIn(OrderStatus.Confirmed, OrderStatus.Shipped, OrderStatus.Delivered) },
+            new { Stage = "Shipped",   StageOrder = (byte)4, OrderCount = CountIn(OrderStatus.Shipped, OrderStatus.Delivered) },
+            new { Stage = "Delivered", StageOrder = (byte)5, OrderCount = CountIn(OrderStatus.Delivered) },
+            new { Stage = "Cancelled", StageOrder = (byte)6, OrderCount = CountIn(OrderStatus.Cancelled) },
+        };
+
+        await conn.ExecuteAsync(new CommandDefinition(
+            "TRUNCATE TABLE gold.OrderFunnel;", cancellationToken: ct));
+        await conn.ExecuteAsync(new CommandDefinition(@"
+            INSERT INTO gold.OrderFunnel (Stage, StageOrder, OrderCount)
+            VALUES (@Stage, @StageOrder, @OrderCount);", funnel, cancellationToken: ct));
+
+        // ---- gold.ProductInventory (current stock from OLTP + units sold from fact) ----
+        var sold = (await conn.QueryAsync<(long ProductId, long Units)>(new CommandDefinition(@"
+            SELECT p.ProductId, SUM(f.Quantity) AS Units
+            FROM   fact.SalesOrderItem f
+            JOIN   dim.Product p ON p.ProductKey = f.ProductKey AND p.IsCurrent = 1
+            GROUP BY p.ProductId;", cancellationToken: ct)))
+            .ToDictionary(x => x.ProductId, x => x.Units);
+
+        var products = await _oltp.Products.AsNoTracking()
+            .Select(p => new { p.Id, p.Sku, p.Name, p.Category, p.StockQuantity })
+            .ToListAsync(ct);
+
+        var inv = new DataTable();
+        inv.Columns.Add("ProductId",    typeof(long));
+        inv.Columns.Add("Sku",          typeof(string));
+        inv.Columns.Add("ProductName",  typeof(string));
+        inv.Columns.Add("Category",     typeof(string));
+        inv.Columns.Add("CurrentStock", typeof(int));
+        inv.Columns.Add("UnitsSold",    typeof(long));
+        inv.Columns.Add("LowStock",     typeof(bool));
+        foreach (var p in products)
+            inv.Rows.Add(p.Id, p.Sku, p.Name, p.Category, p.StockQuantity,
+                sold.TryGetValue(p.Id, out var u) ? u : 0L,
+                p.StockQuantity < LowStockThreshold);
+
+        await conn.ExecuteAsync(new CommandDefinition(
+            "TRUNCATE TABLE gold.ProductInventory;", cancellationToken: ct));
+        if (inv.Rows.Count > 0)
+        {
+            using var bulk = new SqlBulkCopy(conn)
+            {
+                DestinationTableName = "gold.ProductInventory",
+                BatchSize = 5000,
+                BulkCopyTimeout = 120
+            };
+            foreach (DataColumn col in inv.Columns)
+                bulk.ColumnMappings.Add(col.ColumnName, col.ColumnName);
+            await bulk.WriteToServerAsync(inv, ct);
+        }
     }
 }

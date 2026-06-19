@@ -191,6 +191,49 @@ BEGIN
     );
 END;
 
+-- Gold 4: sales by payment method (current OLTP order state, refreshed each ETL run)
+-- NOTE: sourced from CURRENT order state (not the immutable fact) because
+-- PaymentMethod/PaymentStatus are mutable after an order is first ingested.
+IF OBJECT_ID(N'gold.SalesByPaymentMethod', N'U') IS NULL
+BEGIN
+    CREATE TABLE gold.SalesByPaymentMethod (
+        PaymentMethod   TINYINT      NOT NULL PRIMARY KEY,   -- 1 COD / 2 VNPay / 3 MoMo
+        MethodName      VARCHAR(20)  NOT NULL,
+        OrderCount      BIGINT       NOT NULL,
+        PaidOrderCount  BIGINT       NOT NULL,
+        TotalRevenue    DECIMAL(18,2) NOT NULL,              -- gross (all orders)
+        PaidRevenue     DECIMAL(18,2) NOT NULL,              -- only PaymentStatus = Paid
+        RefreshedAt     DATETIME2    NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END;
+
+-- Gold 5: order fulfilment funnel (current order-state counts)
+IF OBJECT_ID(N'gold.OrderFunnel', N'U') IS NULL
+BEGIN
+    CREATE TABLE gold.OrderFunnel (
+        Stage        VARCHAR(20)  NOT NULL PRIMARY KEY,      -- Placed/Paid/Confirmed/Shipped/Delivered/Cancelled
+        StageOrder   TINYINT      NOT NULL,
+        OrderCount   BIGINT       NOT NULL,
+        RefreshedAt  DATETIME2    NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END;
+
+-- Gold 6: product inventory + turnover (current stock from OLTP + units sold from fact)
+IF OBJECT_ID(N'gold.ProductInventory', N'U') IS NULL
+BEGIN
+    CREATE TABLE gold.ProductInventory (
+        ProductId     BIGINT       NOT NULL PRIMARY KEY,
+        Sku           VARCHAR(50)  NOT NULL,
+        ProductName   NVARCHAR(300) NOT NULL,
+        Category      NVARCHAR(100) NOT NULL,
+        CurrentStock  INT          NOT NULL,
+        UnitsSold     BIGINT       NOT NULL,
+        LowStock      BIT          NOT NULL,                 -- CurrentStock below threshold
+        RefreshedAt   DATETIME2    NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+    CREATE INDEX IX_ProductInventory_LowStock ON gold.ProductInventory(LowStock) WHERE LowStock = 1;
+END;
+
 -- ============================================================
 -- ETL — watermark + run log
 -- ============================================================

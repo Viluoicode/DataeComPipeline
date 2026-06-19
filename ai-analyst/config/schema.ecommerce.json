@@ -52,6 +52,46 @@
         { "name": "DaysSinceLastOrder","type": "int",           "description": "Days between the last order and today. High = churned/at-risk." },
         { "name": "RefreshedAt",       "type": "datetime2",     "description": "ETL refresh metadata." }
       ]
+    },
+    {
+      "schema": "gold",
+      "name": "SalesByPaymentMethod",
+      "grain": "One row per payment method, reflecting CURRENT order state. Use for payment-method breakdown / paid-vs-gross revenue questions.",
+      "columns": [
+        { "name": "PaymentMethod",  "type": "tinyint",       "description": "Payment method code: 1=COD, 2=VNPay, 3=MoMo." },
+        { "name": "MethodName",     "type": "varchar(20)",   "description": "Human-readable method name: 'COD', 'VNPay', 'MoMo'." },
+        { "name": "OrderCount",     "type": "bigint",        "description": "Total orders using this method (any payment status)." },
+        { "name": "PaidOrderCount", "type": "bigint",        "description": "Orders using this method that are fully Paid." },
+        { "name": "TotalRevenue",   "type": "decimal(18,2)", "description": "Gross revenue (VND) of all orders with this method." },
+        { "name": "PaidRevenue",    "type": "decimal(18,2)", "description": "Revenue (VND) of only the Paid orders with this method." },
+        { "name": "RefreshedAt",    "type": "datetime2",     "description": "ETL refresh metadata." }
+      ]
+    },
+    {
+      "schema": "gold",
+      "name": "OrderFunnel",
+      "grain": "One row per fulfilment stage with the current count of orders that reached it. Use for conversion-funnel questions.",
+      "columns": [
+        { "name": "Stage",      "type": "varchar(20)", "description": "Funnel stage: 'Placed', 'Paid', 'Confirmed', 'Shipped', 'Delivered', 'Cancelled'." },
+        { "name": "StageOrder", "type": "tinyint",     "description": "Display order of the stage (1=Placed .. 6=Cancelled)." },
+        { "name": "OrderCount", "type": "bigint",      "description": "Number of orders that reached this stage." },
+        { "name": "RefreshedAt","type": "datetime2",   "description": "ETL refresh metadata." }
+      ]
+    },
+    {
+      "schema": "gold",
+      "name": "ProductInventory",
+      "grain": "One row per product with current stock and lifetime units sold. Use for inventory / low-stock / turnover questions.",
+      "columns": [
+        { "name": "ProductId",    "type": "bigint",        "description": "Business product id." },
+        { "name": "Sku",          "type": "varchar(50)",   "description": "Product SKU code." },
+        { "name": "ProductName",  "type": "nvarchar(300)", "description": "Product display name." },
+        { "name": "Category",     "type": "nvarchar(100)", "description": "Product category." },
+        { "name": "CurrentStock", "type": "int",           "description": "Current stock on hand (from OLTP)." },
+        { "name": "UnitsSold",    "type": "bigint",        "description": "Lifetime units sold (from the sales fact)." },
+        { "name": "LowStock",     "type": "bit",           "description": "1 when CurrentStock is below the low-stock threshold." },
+        { "name": "RefreshedAt",  "type": "datetime2",     "description": "ETL refresh metadata." }
+      ]
     }
   ],
   "relationships": [],
@@ -79,6 +119,18 @@
     {
       "question": "Daily revenue trend for category Electronics",
       "sql": "SELECT TOP 1000 [Date], SUM(TotalRevenue) AS Revenue FROM gold.DailySalesByCategory WHERE Category = N'Electronics' GROUP BY [Date] ORDER BY [Date];"
+    },
+    {
+      "question": "Doanh thu theo phương thức thanh toán",
+      "sql": "SELECT TOP 1000 MethodName, OrderCount, PaidRevenue, TotalRevenue FROM gold.SalesByPaymentMethod ORDER BY TotalRevenue DESC;"
+    },
+    {
+      "question": "Những sản phẩm nào sắp hết hàng?",
+      "sql": "SELECT TOP 1000 ProductName, Sku, CurrentStock, UnitsSold FROM gold.ProductInventory WHERE LowStock = 1 ORDER BY CurrentStock ASC;"
+    },
+    {
+      "question": "How many orders reached each fulfilment stage?",
+      "sql": "SELECT TOP 1000 Stage, OrderCount FROM gold.OrderFunnel ORDER BY StageOrder;"
     }
   ]
 }

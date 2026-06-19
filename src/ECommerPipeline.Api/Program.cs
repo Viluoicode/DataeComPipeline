@@ -524,6 +524,22 @@ app.MapGet("/api/reports/top-products",
         Results.Ok(await svc.GetTopProductsAsync(from, to, top ?? 10, ct)))
    .WithTags("Reports");
 
+// Phase 4 — business-state analytics (payment mix / funnel / inventory)
+app.MapGet("/api/reports/sales-by-payment-method",
+    async (IReportService svc, CancellationToken ct) =>
+        Results.Ok(await svc.GetSalesByPaymentMethodAsync(ct)))
+   .WithTags("Reports");
+
+app.MapGet("/api/reports/order-funnel",
+    async (IReportService svc, CancellationToken ct) =>
+        Results.Ok(await svc.GetOrderFunnelAsync(ct)))
+   .WithTags("Reports");
+
+app.MapGet("/api/reports/low-stock",
+    async (int? limit, IReportService svc, CancellationToken ct) =>
+        Results.Ok(await svc.GetLowStockProductsAsync(limit ?? 50, ct)))
+   .WithTags("Reports");
+
 // ============================================================
 //  AI Data Analyst — NL→SQL proxy (admin chat assistant)
 //  Forwards the question to the internal ai-analyst service, which generates

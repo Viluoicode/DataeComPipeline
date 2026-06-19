@@ -14,7 +14,10 @@ import {
 } from '@tremor/react'
 import { reportsApi, type DateRange } from '../api/reports'
 import { isAbortError } from '../api/client'
-import type { SalesByCategoryRow, SalesByDayRow, TopProductRow } from '../types/api'
+import type {
+  SalesByCategoryRow, SalesByDayRow, TopProductRow,
+  PaymentMethodSalesRow, OrderFunnelRow, ProductInventoryRow,
+} from '../types/api'
 import { useEtlNotifications } from '../hooks/useEtlNotifications'
 import { DateInput } from '../components/DateInput'
 
@@ -37,6 +40,9 @@ export function Dashboard() {
   const [byDay, setByDay] = useState<SalesByDayRow[]>([])
   const [byCategory, setByCategory] = useState<SalesByCategoryRow[]>([])
   const [topProducts, setTopProducts] = useState<TopProductRow[]>([])
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodSalesRow[]>([])
+  const [funnel, setFunnel] = useState<OrderFunnelRow[]>([])
+  const [lowStock, setLowStock] = useState<ProductInventoryRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -44,14 +50,20 @@ export function Dashboard() {
     setLoading(true)
     setError(null)
     try {
-      const [d, c, p] = await Promise.all([
+      const [d, c, p, pm, fn, ls] = await Promise.all([
         reportsApi.salesByDay(r, signal),
         reportsApi.salesByCategory(r, signal),
         reportsApi.topProducts(r, 10, signal),
+        reportsApi.salesByPaymentMethod(signal),
+        reportsApi.orderFunnel(signal),
+        reportsApi.lowStock(20, signal),
       ])
       setByDay(d)
       setByCategory(c)
       setTopProducts(p)
+      setPaymentMethods(pm)
+      setFunnel(fn)
+      setLowStock(ls)
     } catch (e: unknown) {
       // Swallow abort errors — they mean the user moved on (filter changed
       // or component unmounted) and we don't want to flash a fake error.
@@ -91,6 +103,9 @@ export function Dashboard() {
     name: c.category,
     sales: c.totalRevenue,
   }))
+
+  const paymentDonut = paymentMethods.map(m => ({ name: m.methodName, sales: m.totalRevenue }))
+  const funnelList = funnel.map(f => ({ name: f.stage, value: f.orderCount }))
 
   const badgeColor =
     signalRStatus === 'connected'    ? 'emerald' :
@@ -188,6 +203,68 @@ export function Dashboard() {
           />
         </Card>
       </Grid>
+
+      {/* ── Phase 4: business-state analytics (current OLTP state via Gold) ── */}
+      <Grid numItemsMd={2} className="gap-6">
+        <Card>
+          <Title>Doanh thu theo phương thức thanh toán</Title>
+          <Text>Tỉ trọng COD / VNPay / MoMo (trạng thái hiện tại)</Text>
+          <DonutChart
+            className="h-60 mt-4"
+            data={paymentDonut}
+            category="sales"
+            index="name"
+            valueFormatter={formatVnd}
+            colors={['amber', 'blue', 'fuchsia']}
+          />
+          <div className="mt-4 space-y-1 text-sm">
+            {paymentMethods.map(m => (
+              <div key={m.paymentMethod} className="flex justify-between">
+                <span className="text-gray-400">{m.methodName} · {m.paidOrderCount}/{m.orderCount} paid</span>
+                <span className="text-gray-200">{formatVnd(m.paidRevenue)}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+        <Card>
+          <Title>Order Funnel</Title>
+          <Text>Số đơn đạt mỗi giai đoạn (trạng thái hiện tại)</Text>
+          <BarList
+            className="mt-4"
+            data={funnelList}
+            color="indigo"
+            valueFormatter={(n: number) => n.toLocaleString('en-US')}
+          />
+        </Card>
+      </Grid>
+
+      <Card>
+        <Flex justifyContent="between" alignItems="center">
+          <div>
+            <Title>Sản phẩm sắp hết hàng</Title>
+            <Text>Tồn kho dưới ngưỡng (20)</Text>
+          </div>
+          <Badge color={lowStock.length ? 'rose' : 'emerald'}>{lowStock.length} SP</Badge>
+        </Flex>
+        {lowStock.length === 0 ? (
+          <Text className="mt-4">Không có sản phẩm nào dưới ngưỡng. 🎉</Text>
+        ) : (
+          <div className="mt-4 divide-y divide-gray-800">
+            {lowStock.map(p => (
+              <div key={p.productId} className="flex items-center justify-between py-2 text-sm">
+                <div>
+                  <div className="text-gray-100">{p.productName}</div>
+                  <div className="text-xs text-gray-500 font-mono">{p.sku} · {p.category}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-rose-400 font-semibold">{p.currentStock} còn</div>
+                  <div className="text-xs text-gray-500">{p.unitsSold} đã bán</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
     </div>
   )
 }

@@ -215,6 +215,22 @@ public class DataQualityJob
             actual => actual == 0,
             @"SELECT COUNT(*) FROM fact.SalesOrderItem
               WHERE ABS(Quantity * UnitPrice - LineTotal) > 0.01;"),
+
+        // ---------- BUSINESS RULES (Phase 4 — payment / inventory) ----------
+        new("inventory_no_negative_stock", "Business", "Critical",
+            "0 products with CurrentStock < 0 (oversell guard)",
+            actual => actual == 0,
+            "SELECT COUNT(*) FROM gold.ProductInventory WHERE CurrentStock < 0;"),
+
+        new("inventory_low_stock_watch", "Business", "Warning",
+            "0 products below the low-stock threshold (informational)",
+            actual => actual == 0,
+            "SELECT COUNT(*) FROM gold.ProductInventory WHERE LowStock = 1;"),
+
+        new("payment_paid_not_exceed_total", "Business", "Critical",
+            "0 payment methods where PaidRevenue > TotalRevenue",
+            actual => actual == 0,
+            "SELECT COUNT(*) FROM gold.SalesByPaymentMethod WHERE PaidRevenue > TotalRevenue;"),
     };
 
     private record DqTest(

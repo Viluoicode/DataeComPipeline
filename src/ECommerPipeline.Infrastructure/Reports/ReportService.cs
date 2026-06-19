@@ -63,6 +63,36 @@ public class ReportService : IReportService
         return QueryAsync<TopProductRow>(sql, new { From = from.Date, To = to.Date, Top = top }, ct);
     }
 
+    // ---- Phase 4: business-state analytics (refreshed each ETL run from current OLTP state) ----
+
+    public Task<IReadOnlyList<PaymentMethodSalesRow>> GetSalesByPaymentMethodAsync(CancellationToken ct = default)
+    {
+        const string sql = @"
+            SELECT PaymentMethod, MethodName, OrderCount, PaidOrderCount, TotalRevenue, PaidRevenue
+            FROM   gold.SalesByPaymentMethod
+            ORDER BY TotalRevenue DESC;";
+        return QueryAsync<PaymentMethodSalesRow>(sql, new { }, ct);
+    }
+
+    public Task<IReadOnlyList<OrderFunnelRow>> GetOrderFunnelAsync(CancellationToken ct = default)
+    {
+        const string sql = @"
+            SELECT Stage, StageOrder, OrderCount
+            FROM   gold.OrderFunnel
+            ORDER BY StageOrder;";
+        return QueryAsync<OrderFunnelRow>(sql, new { }, ct);
+    }
+
+    public Task<IReadOnlyList<ProductInventoryRow>> GetLowStockProductsAsync(int limit = 50, CancellationToken ct = default)
+    {
+        const string sql = @"
+            SELECT TOP (@Limit) ProductId, Sku, ProductName, Category, CurrentStock, UnitsSold, LowStock
+            FROM   gold.ProductInventory
+            WHERE  LowStock = 1
+            ORDER BY CurrentStock ASC;";
+        return QueryAsync<ProductInventoryRow>(sql, new { Limit = limit }, ct);
+    }
+
     /// Wraps Dapper QueryAsync so that any cancellation flavor — pure
     /// OperationCanceledException OR a CancellationToken-triggered SqlException
     /// (numbers 0 / -2 / "Operation cancelled by user") — is surfaced as a single
