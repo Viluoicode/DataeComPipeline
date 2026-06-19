@@ -5,6 +5,7 @@ using System.Threading.RateLimiting;
 using ECommerPipeline.Api.Hubs;
 using ECommerPipeline.Api.Middleware;
 using ECommerPipeline.Api.Observability;
+using ECommerPipeline.Api.Security;
 using ECommerPipeline.Application.Auth;
 using ECommerPipeline.Application.Auth.DTOs;
 using ECommerPipeline.Application.Auth.Validators;
@@ -81,6 +82,8 @@ builder.Services.AddSingleton<AiMetrics>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // AI endpoint — per user; LLM calls cost money. 15 questions / minute.
     options.AddPolicy("ai-ask", httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -94,6 +97,37 @@ builder.Services.AddRateLimiter(options =>
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
             }));
+
+    // Auth endpoints — per IP; blunt brute-force protection. 10 attempts / minute.
+    options.AddPolicy("auth", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+
+    // Global fallback — per IP; generous cap to blunt scraping/abuse without
+    // hurting normal use. Long-lived (SignalR) + infra paths are exempt.
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+    {
+        var path = httpContext.Request.Path;
+        if (path.StartsWithSegments("/health") ||
+            path.StartsWithSegments("/hangfire") ||
+            path.StartsWithSegments("/hub"))
+            return RateLimitPartition.GetNoLimiter("exempt");
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 300,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            });
+    });
 });
 
 // Fail-fast: never boot in Production with the well-known dev JWT secret or a weak one.
@@ -104,6 +138,20 @@ if (builder.Environment.IsProduction() &&
     throw new InvalidOperationException(
         "Jwt:Secret is missing or insecure for Production. Provide a 32+ char random secret via " +
         "the Jwt__Secret environment variable (do not use the bundled dev default).");
+}
+
+// Fail-fast: never boot Production with the bundled dev SA password in a
+// connection string (a common copy-paste mistake that ships weak DB creds).
+if (builder.Environment.IsProduction())
+{
+    foreach (var name in new[] { "OltpConnection", "OlapConnection", "HangfireConnection" })
+    {
+        if ((builder.Configuration.GetConnectionString(name) ?? "")
+            .Contains("YourStrong@Passw0rd", StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"ConnectionStrings:{name} uses the bundled dev SA password in Production. " +
+                "Set a strong password via environment variables.");
+    }
 }
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
@@ -206,7 +254,9 @@ builder.Services.AddOpenTelemetry()
             .AddHttpClientInstrumentation()
             .AddSqlClientInstrumentation(o =>
             {
-                o.SetDbStatementForText = true;       // include SQL in spans (dev only — strip in prod!)
+                // Include SQL text in spans only in Development — query text can
+                // contain PII (emails, names) and must not leak into prod traces.
+                o.SetDbStatementForText = builder.Environment.IsDevelopment();
                 o.RecordException = true;
             });
 
@@ -234,7 +284,11 @@ using (var scope = app.Services.CreateScope())
     await init.InitializeAsync();
 }
 
-app.UseHangfireDashboard("/hangfire");
+app.UseHangfireDashboard("/hangfire", new DashboardOptions
+{
+    // Dev: open. Prod: HTTP Basic auth (Hangfire:DashboardUser/Password) or deny.
+    Authorization = new[] { new HangfireDashboardAuthFilter(app.Environment, app.Configuration) }
+});
 ECommerPipeline.Infrastructure.DependencyInjection.RegisterRecurringJobs(app.Services);
 
 if (app.Environment.IsDevelopment())
@@ -248,6 +302,9 @@ if (app.Environment.IsDevelopment())
 
 // Correlation id must run early so every later log line carries it.
 app.UseMiddleware<CorrelationIdMiddleware>();
+
+// Baseline security headers on every response (clickjacking / MIME-sniff / etc.).
+app.UseMiddleware<SecurityHeadersMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -299,7 +356,7 @@ app.MapPost("/api/auth/register", async (
     var result = await validator.ValidateAsync(req, ct);
     if (!result.IsValid) return Results.ValidationProblem(result.ToDictionary());
     return Results.Ok(await auth.RegisterAsync(req, ct));
-}).WithTags("Auth");
+}).RequireRateLimiting("auth").WithTags("Auth");
 
 app.MapPost("/api/auth/login", async (
         LoginRequest req,
@@ -311,7 +368,7 @@ app.MapPost("/api/auth/login", async (
     if (!result.IsValid) return Results.ValidationProblem(result.ToDictionary());
     try { return Results.Ok(await auth.LoginAsync(req, ct)); }
     catch (UnauthorizedAccessException ex) { return Results.Problem(ex.Message, statusCode: 401); }
-}).WithTags("Auth");
+}).RequireRateLimiting("auth").WithTags("Auth");
 
 app.MapPost("/api/auth/refresh", async (RefreshRequest req, IAuthService auth, CancellationToken ct) =>
 {
@@ -338,6 +395,7 @@ app.MapGet("/api/auth/me", async (ClaimsPrincipal user, IAuthService auth, Cance
 // ============================================================
 app.MapPost("/api/orders", async (
         CreateOrderRequest req,
+        ClaimsPrincipal user,
         IValidator<CreateOrderRequest> validator,
         IOrderService svc,
         CancellationToken ct) =>
@@ -346,8 +404,18 @@ app.MapPost("/api/orders", async (
     if (!result.IsValid)
         return Results.ValidationProblem(result.ToDictionary());
 
+    // Non-staff may only place orders billed to themselves (prevents IDOR where a
+    // customer crafts an order against another customer's id). Staff/Admin (manual
+    // order entry) keep the requested CustomerId.
+    if (!user.IsInRole("Admin") && !user.IsInRole("Staff"))
+    {
+        var idStr = user.FindFirstValue("sub") ?? user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!long.TryParse(idStr, out var uid)) return Results.Unauthorized();
+        req = req with { CustomerId = uid };
+    }
+
     return Results.Ok(await svc.CreateAsync(req, ct));
-}).WithTags("Orders");
+}).RequireAuthorization().WithTags("Orders");
 
 app.MapGet("/api/orders", async (
         int? page,
@@ -357,25 +425,46 @@ app.MapGet("/api/orders", async (
         DateTime? from,
         DateTime? to,
         string? search,
+        ClaimsPrincipal user,
         IOrderService svc,
         CancellationToken ct) =>
 {
+    // Non-staff can only ever list their OWN orders — force the filter to their id.
+    var effectiveCustomerId = customerId;
+    if (!user.IsInRole("Admin") && !user.IsInRole("Staff"))
+    {
+        var idStr = user.FindFirstValue("sub") ?? user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!long.TryParse(idStr, out var uid)) return Results.Unauthorized();
+        effectiveCustomerId = uid;
+    }
+
     var query = new OrderQueryParams(
         Page:       page     ?? 1,
         PageSize:   pageSize ?? 20,
         Status:     status,
-        CustomerId: customerId,
+        CustomerId: effectiveCustomerId,
         From:       from,
         To:         to,
         Search:     search);
     return Results.Ok(await svc.GetPagedAsync(query, ct));
-}).WithTags("Orders");
+}).RequireAuthorization().WithTags("Orders");
 
-app.MapGet("/api/orders/{id:long}", async (long id, IOrderService svc, CancellationToken ct) =>
+app.MapGet("/api/orders/{id:long}", async (
+        long id, ClaimsPrincipal user, IOrderService svc, CancellationToken ct) =>
 {
     var detail = await svc.GetByIdAsync(id, ct);
-    return detail is null ? Results.NotFound() : Results.Ok(detail);
-}).WithTags("Orders");
+    if (detail is null) return Results.NotFound();
+
+    // Non-staff may only view their own order; return 404 (not 403) so we don't
+    // leak whether someone else's order id exists.
+    if (!user.IsInRole("Admin") && !user.IsInRole("Staff"))
+    {
+        var idStr = user.FindFirstValue("sub") ?? user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!long.TryParse(idStr, out var uid) || detail.CustomerId != uid)
+            return Results.NotFound();
+    }
+    return Results.Ok(detail);
+}).RequireAuthorization().WithTags("Orders");
 
 // Staff/Admin advance an order through the fulfilment state machine
 // (Pending→Confirmed→Shipped→Delivered, or →Cancelled). Invalid jumps are

@@ -86,6 +86,9 @@ services:
       Email__Port:     "1025"
       Email__FromEmail: "no-reply@ecompipeline.local"
       Email__FromName:  "ECommerPipeline"
+      # Hangfire dashboard (prod) is HTTP Basic-auth protected. Change these.
+      Hangfire__DashboardUser:     "admin"
+      Hangfire__DashboardPassword: "admin123"
     ports:
       # Direct API access for debugging (frontend proxies via nginx anyway)
       - "5193:8080"
