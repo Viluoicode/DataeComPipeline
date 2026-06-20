@@ -4,10 +4,12 @@ using ECommerPipeline.Application.Orders;
 using ECommerPipeline.Application.Orders.DTOs;
 using ECommerPipeline.Domain.Entities;
 using ECommerPipeline.Domain.Enums;
+using ECommerPipeline.Infrastructure.Commerce;
 using ECommerPipeline.Infrastructure.Notifications;
 using ECommerPipeline.Infrastructure.Observability;
 using ECommerPipeline.Infrastructure.Persistence.Oltp;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace ECommerPipeline.Infrastructure.Orders;
 
@@ -15,12 +17,16 @@ public class OrderService : IOrderService
 {
     private readonly OltpDbContext _db;
     private readonly BusinessMetrics? _metrics;
+    private readonly CommerceOptions _commerce;
 
-    // BusinessMetrics is optional so direct unit-test construction stays simple.
-    public OrderService(OltpDbContext db, BusinessMetrics? metrics = null)
+    // metrics + commerce are optional so direct unit-test construction stays simple
+    // (no options → free shipping / no VAT → grand total == subtotal, as before).
+    public OrderService(
+        OltpDbContext db, BusinessMetrics? metrics = null, IOptions<CommerceOptions>? commerce = null)
     {
         _db = db;
         _metrics = metrics;
+        _commerce = commerce?.Value ?? new CommerceOptions();
     }
 
     public async Task<OrderCreatedResponse> CreateAsync(CreateOrderRequest request, CancellationToken ct = default)
@@ -74,7 +80,11 @@ public class OrderService : IOrderService
                 };
             }).ToList()
         };
-        order.TotalAmount = order.Items.Sum(i => i.LineTotal);
+        var subtotal = order.Items.Sum(i => i.LineTotal);
+        order.Subtotal    = subtotal;
+        order.ShippingFee = _commerce.ShippingFor(subtotal);
+        order.TaxAmount   = _commerce.TaxFor(subtotal);
+        order.TotalAmount = subtotal + order.ShippingFee + order.TaxAmount;  // grand total charged
         order.Events.Add(new OrderEvent
         {
             FromStatus = null,
@@ -92,7 +102,8 @@ public class OrderService : IOrderService
         _metrics?.OrderCreated();
 
         return new OrderCreatedResponse(
-            order.Id, order.OrderNumber, order.TotalAmount, order.PaymentMethod, order.PaymentStatus);
+            order.Id, order.OrderNumber, order.Subtotal, order.ShippingFee, order.TaxAmount,
+            order.TotalAmount, order.PaymentMethod, order.PaymentStatus);
     }
 
     public async Task<PagedResult<OrderListItemDto>> GetPagedAsync(OrderQueryParams q, CancellationToken ct = default)
@@ -259,6 +270,9 @@ public class OrderService : IOrderService
         order.ShipPhone,
         order.ShipAddress,
         order.Note,
+        order.Subtotal,
+        order.ShippingFee,
+        order.TaxAmount,
         order.TotalAmount,
         order.Items.Select(i => new OrderItemDetailDto(
             i.ProductId, i.Product.Sku, i.Product.Name, i.Quantity, i.UnitPrice, i.LineTotal)).ToList(),

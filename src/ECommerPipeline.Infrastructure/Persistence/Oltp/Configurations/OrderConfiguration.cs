@@ -11,6 +11,9 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         e.ToTable("Orders");
         e.HasKey(x => x.Id);
         e.Property(x => x.OrderNumber).HasMaxLength(40).IsRequired();
+        e.Property(x => x.Subtotal).HasColumnType("decimal(18,2)");
+        e.Property(x => x.ShippingFee).HasColumnType("decimal(18,2)");
+        e.Property(x => x.TaxAmount).HasColumnType("decimal(18,2)");
         e.Property(x => x.TotalAmount).HasColumnType("decimal(18,2)");
         e.Property(x => x.Status).HasConversion<int>();
         e.Property(x => x.PaymentMethod).HasConversion<int>();

@@ -37,4 +37,10 @@ export const productsApi = {
 
   remove: (id: number) =>
     api.delete(`/api/products/${id}`).then(r => r.data),
+
+  uploadImage: (id: number, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post<{ imageUrl: string }>(`/api/products/${id}/image`, fd).then(r => r.data)
+  },
 }

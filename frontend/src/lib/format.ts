@@ -27,7 +27,10 @@ export function formatDate(iso: string): string {
   })
 }
 
-/** Stable placeholder image URL based on a product/seed id. */
-export function productImage(seed: string | number, width = 400, height = 300): string {
+/** Product image: the uploaded image when present, else a stable placeholder. */
+export function productImage(
+  seed: string | number, width = 400, height = 300, imageUrl?: string | null,
+): string {
+  if (imageUrl) return imageUrl
   return `https://picsum.photos/seed/ecom-${seed}/${width}/${height}`
 }

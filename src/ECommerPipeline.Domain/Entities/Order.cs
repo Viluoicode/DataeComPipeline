@@ -11,7 +11,12 @@ public class Order : BaseEntity
 
     public DateTime OrderDate { get; set; }
     public OrderStatus Status { get; set; }
-    public decimal TotalAmount { get; set; }
+
+    // ---- Money breakdown ----
+    public decimal Subtotal { get; set; }      // sum of line totals (product revenue → flows to OLAP fact)
+    public decimal ShippingFee { get; set; }   // flat fee (or 0 when free)
+    public decimal TaxAmount { get; set; }      // VAT on the subtotal
+    public decimal TotalAmount { get; set; }    // grand total charged = Subtotal + ShippingFee + TaxAmount
 
     // ---- Fulfilment / shipping (captured at checkout) ----
     public string? ShipFullName { get; set; }

@@ -7,7 +7,8 @@ public record ProductLookupDto(
     string Category,
     string? Brand,
     decimal Price,
-    int StockQuantity);
+    int StockQuantity,
+    string? ImageUrl);   // serve path (/api/products/{id}/image) when an image is uploaded, else null
 
 // ---- Phase 8: admin catalog management ----
 public record CreateProductRequest(

@@ -16,6 +16,7 @@ import { Checkout } from './pages/public/Checkout'
 import { PaymentReturn } from './pages/public/PaymentReturn'
 import { MyOrders } from './pages/public/MyOrders'
 import { OrderTracking } from './pages/public/OrderTracking'
+import { Addresses } from './pages/public/Addresses'
 import { Login } from './pages/public/Login'
 import { Register } from './pages/public/Register'
 
@@ -58,6 +59,7 @@ export default function App() {
                 <Route path="/checkout"     element={<Checkout />} />
                 <Route path="/my-orders"    element={<MyOrders />} />
                 <Route path="/my-orders/:id" element={<OrderTracking />} />
+                <Route path="/addresses"    element={<Addresses />} />
               </Route>
             </Route>
 

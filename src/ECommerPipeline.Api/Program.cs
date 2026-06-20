@@ -6,6 +6,7 @@ using ECommerPipeline.Api.Hubs;
 using ECommerPipeline.Api.Middleware;
 using ECommerPipeline.Api.Observability;
 using ECommerPipeline.Api.Security;
+using ECommerPipeline.Application.Addresses;
 using ECommerPipeline.Application.Auth;
 using ECommerPipeline.Application.Auth.DTOs;
 using ECommerPipeline.Application.Auth.Validators;
@@ -23,8 +24,10 @@ using ECommerPipeline.Infrastructure;
 using ECommerPipeline.Application.Orders.Validators;
 using ECommerPipeline.Api.Health;
 using ECommerPipeline.Infrastructure.Initialization;
+using ECommerPipeline.Infrastructure.Commerce;
 using ECommerPipeline.Infrastructure.Observability;
 using ECommerPipeline.Infrastructure.Payments;
+using ECommerPipeline.Infrastructure.Products;
 using FluentValidation;
 using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -656,6 +659,77 @@ app.MapDelete("/api/products/{id:long}", async (long id, IProductService svc, Ca
     await svc.DeleteAsync(id, ct);
     return Results.Ok(new { status = "deleted", id });
 }).RequireAuthorization(p => p.RequireRole("Admin", "Staff")).WithTags("Products");
+
+// Upload a product image (Staff/Admin) — multipart/form-data field "file".
+app.MapPost("/api/products/{id:long}/image", async (
+        long id, IFormFile file, IProductService svc, ProductImageStorage storage, CancellationToken ct) =>
+{
+    if (file is null || file.Length == 0) return Results.BadRequest("No file uploaded.");
+    if (file.Length > 5 * 1024 * 1024) return Results.BadRequest("Image too large (max 5 MB).");
+    var ext = Path.GetExtension(file.FileName);
+    if (!storage.IsAllowedExtension(ext))
+        return Results.BadRequest("Only PNG / JPG / WEBP / GIF images are allowed.");
+
+    await using var s = file.OpenReadStream();
+    var fileName = await storage.SaveAsync(id, s, ext, ct);
+    await svc.SetImageAsync(id, fileName, ct);
+    return Results.Ok(new { imageUrl = $"/api/products/{id}/image" });
+}).RequireAuthorization(p => p.RequireRole("Admin", "Staff")).DisableAntiforgery().WithTags("Products");
+
+// Serve a product image (public).
+app.MapGet("/api/products/{id:long}/image", async (
+        long id, IProductService svc, ProductImageStorage storage, CancellationToken ct) =>
+{
+    var fileName = await svc.GetImageFileNameAsync(id, ct);
+    if (fileName is null) return Results.NotFound();
+    var opened = storage.Open(fileName);
+    return opened is null ? Results.NotFound() : Results.File(opened.Value.Stream, opened.Value.ContentType);
+}).WithTags("Products");
+
+// Storefront pricing config (shipping fee / free-ship threshold / VAT rate) so the
+// checkout can show an estimate; the order total is computed authoritatively server-side.
+app.MapGet("/api/commerce/config", (IOptions<CommerceOptions> opt) =>
+    Results.Ok(new
+    {
+        shippingFee = opt.Value.ShippingFee,
+        freeShippingThreshold = opt.Value.FreeShippingThreshold,
+        vatRate = opt.Value.VatRate,
+    })).WithTags("Commerce");
+
+// ============================================================
+//  Addresses — customer address book (scoped to the caller)
+// ============================================================
+app.MapGet("/api/addresses", async (ClaimsPrincipal user, IAddressService svc, CancellationToken ct) =>
+{
+    var idStr = user.FindFirstValue("sub") ?? user.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (!long.TryParse(idStr, out var cid)) return Results.Unauthorized();
+    return Results.Ok(await svc.ListAsync(cid, ct));
+}).RequireAuthorization().WithTags("Addresses");
+
+app.MapPost("/api/addresses", async (
+        SaveAddressRequest req, ClaimsPrincipal user, IAddressService svc, CancellationToken ct) =>
+{
+    var idStr = user.FindFirstValue("sub") ?? user.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (!long.TryParse(idStr, out var cid)) return Results.Unauthorized();
+    return Results.Ok(await svc.CreateAsync(cid, req, ct));
+}).RequireAuthorization().WithTags("Addresses");
+
+app.MapPut("/api/addresses/{id:long}", async (
+        long id, SaveAddressRequest req, ClaimsPrincipal user, IAddressService svc, CancellationToken ct) =>
+{
+    var idStr = user.FindFirstValue("sub") ?? user.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (!long.TryParse(idStr, out var cid)) return Results.Unauthorized();
+    return Results.Ok(await svc.UpdateAsync(cid, id, req, ct));
+}).RequireAuthorization().WithTags("Addresses");
+
+app.MapDelete("/api/addresses/{id:long}", async (
+        long id, ClaimsPrincipal user, IAddressService svc, CancellationToken ct) =>
+{
+    var idStr = user.FindFirstValue("sub") ?? user.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (!long.TryParse(idStr, out var cid)) return Results.Unauthorized();
+    await svc.DeleteAsync(cid, id, ct);
+    return Results.Ok(new { status = "deleted", id });
+}).RequireAuthorization().WithTags("Addresses");
 
 // ============================================================
 //  OLAP — analytical read path (served from Columnstore)

@@ -7,6 +7,7 @@ import {
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
   ClipboardDocumentListIcon,
+  MapPinIcon,
   Bars3Icon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
@@ -115,6 +116,14 @@ export function PublicLayout() {
                       >
                         <ClipboardDocumentListIcon className="w-5 h-5" />
                         My Orders
+                      </Link>
+                      <Link
+                        to="/addresses"
+                        onClick={() => setMenuOpen(false)}
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-gray-50"
+                      >
+                        <MapPinIcon className="w-5 h-5" />
+                        Sổ địa chỉ
                       </Link>
                       <Link
                         to="/admin"

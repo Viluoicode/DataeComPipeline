@@ -16,6 +16,9 @@ public record CreateOrderItem(long ProductId, int Quantity);
 public record OrderCreatedResponse(
     long OrderId,
     string OrderNumber,
+    decimal Subtotal,
+    decimal ShippingFee,
+    decimal TaxAmount,
     decimal TotalAmount,
     PaymentMethod PaymentMethod,
     PaymentStatus PaymentStatus);
