@@ -137,7 +137,7 @@ function ProductCard({ product, onAdd }: { product: ProductLookup; onAdd: () => 
     <div className="group bg-gray-900 border border-gray-800 rounded-lg overflow-hidden hover:border-gray-700 transition flex flex-col">
       <Link to={`/shop/${product.id}`} className="block aspect-square overflow-hidden bg-gray-800">
         <img
-          src={productImage(product.id, 300, 300)}
+          src={productImage(product.id, 300, 300, product.imageUrl)}
           alt={product.name}
           loading="lazy"
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"

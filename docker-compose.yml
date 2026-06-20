@@ -96,6 +96,14 @@ services:
       ConnectionStrings__Redis: "redis:6379"
       # Nightly OLTP backup writes here (path is on the SQL Server container).
       Backup__Directory: "/var/opt/mssql/backups"
+      # Commerce — shipping fee / free-ship threshold / VAT applied at checkout.
+      Commerce__ShippingFee: "30000"
+      Commerce__FreeShippingThreshold: "500000"
+      Commerce__VatRate: "0.08"
+      # Product images saved here (persisted via the product_images volume).
+      Storage__ProductImages: "/app/uploads/products"
+    volumes:
+      - product_images:/app/uploads/products
     ports:
       # Direct API access for debugging (frontend proxies via nginx anyway)
       - "5193:8080"
@@ -222,3 +230,4 @@ volumes:
   sql_data:
   backups:
   grafana_data:
+  product_images:

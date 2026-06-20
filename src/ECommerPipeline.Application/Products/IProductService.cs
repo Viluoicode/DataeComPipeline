@@ -12,4 +12,9 @@ public interface IProductService
     Task<ProductLookupDto> CreateAsync(CreateProductRequest request, CancellationToken ct = default);
     Task<ProductLookupDto> UpdateAsync(long id, UpdateProductRequest request, CancellationToken ct = default);
     Task DeleteAsync(long id, CancellationToken ct = default);
+
+    /// Record the saved image file name on the product (throws if not found).
+    Task SetImageAsync(long id, string fileName, CancellationToken ct = default);
+    /// The stored image file name for a product, or null if none / product missing.
+    Task<string?> GetImageFileNameAsync(long id, CancellationToken ct = default);
 }

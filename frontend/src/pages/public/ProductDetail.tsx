@@ -73,7 +73,7 @@ export function ProductDetail() {
         {/* Image */}
         <div className="aspect-square rounded-lg overflow-hidden bg-gray-900 border border-gray-800">
           <img
-            src={productImage(product.id, 800, 800)}
+            src={productImage(product.id, 800, 800, product.imageUrl)}
             alt={product.name}
             className="w-full h-full object-cover"
           />
@@ -165,7 +165,7 @@ export function ProductDetail() {
               >
                 <div className="aspect-square bg-gray-800 overflow-hidden">
                   <img
-                    src={productImage(p.id, 200, 200)}
+                    src={productImage(p.id, 200, 200, p.imageUrl)}
                     alt={p.name}
                     loading="lazy"
                     className="w-full h-full object-cover group-hover:scale-105 transition"

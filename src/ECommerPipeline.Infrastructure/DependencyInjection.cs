@@ -1,3 +1,4 @@
+using ECommerPipeline.Application.Addresses;
 using ECommerPipeline.Application.Auth;
 using ECommerPipeline.Application.Common.Interfaces;
 using ECommerPipeline.Application.Customers;
@@ -6,7 +7,9 @@ using ECommerPipeline.Application.Orders;
 using ECommerPipeline.Application.Payments;
 using ECommerPipeline.Application.Products;
 using ECommerPipeline.Application.Reports;
+using ECommerPipeline.Infrastructure.Addresses;
 using ECommerPipeline.Infrastructure.Auth;
+using ECommerPipeline.Infrastructure.Commerce;
 using ECommerPipeline.Infrastructure.Customers;
 using ECommerPipeline.Infrastructure.Etl;
 using ECommerPipeline.Infrastructure.Import;
@@ -58,6 +61,11 @@ public static class DependencyInjection
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IReportService, ReportService>();
         services.AddScoped<IImportService, ExcelImportService>();
+        services.AddScoped<IAddressService, AddressService>();
+
+        // Catalog/commerce extras (Phase 8): product image storage + shipping/VAT config.
+        services.AddSingleton<ProductImageStorage>();
+        services.Configure<CommerceOptions>(config.GetSection(CommerceOptions.SectionName));
 
         // Payments — provider-agnostic gateways resolved by PaymentMethod.
         services.Configure<PaymentOptions>(config.GetSection(PaymentOptions.SectionName));

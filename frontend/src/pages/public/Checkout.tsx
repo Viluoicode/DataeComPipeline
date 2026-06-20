@@ -10,6 +10,8 @@ import { useCart } from '../../contexts/CartContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { ordersApi } from '../../api/orders'
 import { paymentsApi } from '../../api/payments'
+import { addressesApi, type Address } from '../../api/addresses'
+import { api } from '../../api/client'
 import { PaymentMethod, type PaymentMethodValue } from '../../types/api'
 import { formatVnd, productImage } from '../../lib/format'
 
@@ -30,10 +32,29 @@ export function Checkout() {
 
   const [method, setMethod] = useState<PaymentMethodValue>(PaymentMethod.Cod)
   const [avail, setAvail] = useState<{ vnpay: boolean; momo: boolean }>({ vnpay: false, momo: false })
+  const [addresses, setAddresses] = useState<Address[]>([])
+  const [commerce, setCommerce] = useState({ shippingFee: 0, freeShippingThreshold: 0, vatRate: 0 })
 
   useEffect(() => {
     paymentsApi.methods().then(setAvail).catch(() => { /* leave online disabled */ })
+    api.get('/api/commerce/config').then(r => setCommerce(r.data)).catch(() => { /* defaults */ })
   }, [])
+
+  useEffect(() => {
+    if (!user) return
+    addressesApi.list().then(list => {
+      setAddresses(list)
+      const def = list.find(a => a.isDefault)
+      if (def) setForm(f => ({ ...f, fullName: def.fullName, phone: def.phone, address: def.address }))
+    }).catch(() => { /* no saved addresses */ })
+  }, [user])
+
+  // Money breakdown (estimate shown here; the server recomputes authoritatively).
+  const subtotal = totalValue
+  const shipping = commerce.freeShippingThreshold > 0 && subtotal >= commerce.freeShippingThreshold
+    ? 0 : commerce.shippingFee
+  const tax = Math.round(subtotal * commerce.vatRate)
+  const grandTotal = subtotal + shipping + tax
 
   if (success) {
     return (
@@ -148,7 +169,29 @@ export function Checkout() {
           )}
 
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-gray-50 mb-4">Thông tin giao hàng</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-50">Thông tin giao hàng</h2>
+              <Link to="/addresses" className="text-xs text-blue-400 hover:underline">Quản lý địa chỉ</Link>
+            </div>
+            {addresses.length > 0 && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-300 mb-1">Chọn địa chỉ đã lưu</label>
+                <select
+                  className="w-full px-3 py-2 rounded-md bg-gray-800 border border-gray-700 text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={e => {
+                    const a = addresses.find(x => x.id === Number(e.target.value))
+                    if (a) setForm({ ...form, fullName: a.fullName, phone: a.phone, address: a.address })
+                  }}
+                >
+                  <option value="">— Nhập địa chỉ mới —</option>
+                  {addresses.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.fullName} · {a.address}{a.isDefault ? ' (mặc định)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Họ và tên *" value={form.fullName} onChange={v => setForm({ ...form, fullName: v })} />
               <Field label="Email *" type="email" value={form.email} onChange={v => setForm({ ...form, email: v })} />
@@ -212,7 +255,7 @@ export function Checkout() {
               {items.map(i => (
                 <div key={i.product.id} className="flex gap-3 text-sm">
                   <img
-                    src={productImage(i.product.id, 80, 80)}
+                    src={productImage(i.product.id, 80, 80, i.product.imageUrl)}
                     alt={i.product.name}
                     className="w-12 h-12 rounded object-cover flex-shrink-0"
                   />
@@ -227,16 +270,22 @@ export function Checkout() {
 
             <div className="mt-4 pt-4 border-t border-gray-800 space-y-2 text-sm">
               <div className="flex justify-between text-gray-400">
-                <span>Subtotal</span>
-                <span>{formatVnd(totalValue)}</span>
+                <span>Tạm tính</span>
+                <span>{formatVnd(subtotal)}</span>
               </div>
               <div className="flex justify-between text-gray-400">
                 <span>Phí vận chuyển</span>
-                <span>Free</span>
+                <span>{shipping === 0 ? 'Miễn phí' : formatVnd(shipping)}</span>
               </div>
+              {tax > 0 && (
+                <div className="flex justify-between text-gray-400">
+                  <span>VAT ({Math.round(commerce.vatRate * 100)}%)</span>
+                  <span>{formatVnd(tax)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-base font-semibold text-gray-50 pt-2 border-t border-gray-800">
-                <span>Total</span>
-                <span className="text-blue-400">{formatVnd(totalValue)}</span>
+                <span>Tổng cộng</span>
+                <span className="text-blue-400">{formatVnd(grandTotal)}</span>
               </div>
             </div>
 

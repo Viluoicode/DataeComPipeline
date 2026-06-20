@@ -93,6 +93,9 @@ export interface CreateOrderRequest {
 export interface OrderCreatedResponse {
   orderId: number
   orderNumber: string
+  subtotal: number
+  shippingFee: number
+  taxAmount: number
   totalAmount: number
   paymentMethod: number
   paymentStatus: number
@@ -149,6 +152,9 @@ export interface OrderDetail {
   shipPhone: string | null
   shipAddress: string | null
   note: string | null
+  subtotal: number
+  shippingFee: number
+  taxAmount: number
   totalAmount: number
   items: OrderItemDetail[]
   events: OrderEvent[]
@@ -172,6 +178,7 @@ export interface ProductLookup {
   brand?: string
   price: number
   stockQuantity: number
+  imageUrl?: string | null
 }
 
 // ---------------- Admin ----------------

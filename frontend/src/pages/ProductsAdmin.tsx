@@ -6,6 +6,7 @@ import {
 import toast from 'react-hot-toast'
 import { productsApi, type CreateProductRequest } from '../api/lookups'
 import type { ProductLookup } from '../types/api'
+import { productImage } from '../lib/format'
 
 const empty: CreateProductRequest = { sku: '', name: '', category: '', brand: '', price: 0, stockQuantity: 0 }
 
@@ -70,6 +71,17 @@ export function ProductsAdmin() {
     }
   }
 
+  async function uploadImg(id: number, file?: File) {
+    if (!file) return
+    try {
+      await productsApi.uploadImage(id, file)
+      toast.success('Đã tải ảnh')
+      await load(search)
+    } catch {
+      toast.error('Tải ảnh thất bại (PNG/JPG/WEBP/GIF, ≤ 5MB)')
+    }
+  }
+
   return (
     <div className="p-6 space-y-6">
       <Flex justifyContent="between" alignItems="center">
@@ -129,13 +141,24 @@ export function ProductsAdmin() {
             {items.map(p => (
               <TableRow key={p.id}>
                 <TableCell className="font-mono text-xs">{p.sku}</TableCell>
-                <TableCell>{p.name}</TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <img src={productImage(p.id, 40, 40, p.imageUrl)} alt=""
+                      className="w-8 h-8 rounded object-cover flex-shrink-0" />
+                    <span>{p.name}</span>
+                  </div>
+                </TableCell>
                 <TableCell>{p.category}</TableCell>
                 <TableCell className="text-right">{formatVnd(p.price)}</TableCell>
                 <TableCell className="text-right">
                   <Badge color={p.stockQuantity < 20 ? 'rose' : 'gray'}>{p.stockQuantity}</Badge>
                 </TableCell>
-                <TableCell className="text-right space-x-2">
+                <TableCell className="text-right space-x-2 whitespace-nowrap">
+                  <label className="inline-flex items-center px-2 py-1 text-xs rounded border border-gray-700 text-gray-300 hover:bg-gray-800 cursor-pointer">
+                    Ảnh
+                    <input type="file" accept="image/*" className="hidden"
+                      onChange={e => uploadImg(p.id, e.target.files?.[0])} />
+                  </label>
                   <Button size="xs" variant="secondary" onClick={() => startEdit(p)}>Sửa</Button>
                   <Button size="xs" variant="secondary" color="rose" onClick={() => remove(p)}>Xoá</Button>
                 </TableCell>

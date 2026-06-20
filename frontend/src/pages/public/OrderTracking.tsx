@@ -99,7 +99,12 @@ export function OrderTracking() {
               </div>
             ))}
           </div>
-          <div className="flex justify-between mt-3 pt-3 border-t border-gray-800 font-semibold text-gray-50">
+          <div className="mt-3 pt-3 border-t border-gray-800 space-y-1 text-xs text-gray-400">
+            <div className="flex justify-between"><span>Tạm tính</span><span>{formatVnd(order.subtotal)}</span></div>
+            <div className="flex justify-between"><span>Vận chuyển</span><span>{order.shippingFee === 0 ? 'Miễn phí' : formatVnd(order.shippingFee)}</span></div>
+            {order.taxAmount > 0 && <div className="flex justify-between"><span>VAT</span><span>{formatVnd(order.taxAmount)}</span></div>}
+          </div>
+          <div className="flex justify-between mt-2 pt-2 border-t border-gray-800 font-semibold text-gray-50">
             <span>Tổng</span>
             <span className="text-blue-400">{formatVnd(order.totalAmount)}</span>
           </div>

@@ -60,7 +60,7 @@ export function CartDrawer({ open, onClose }: Props) {
             items.map(item => (
               <div key={item.product.id} className="flex gap-3 p-3 bg-gray-800/50 rounded-md">
                 <img
-                  src={productImage(item.product.id, 80, 80)}
+                  src={productImage(item.product.id, 80, 80, item.product.imageUrl)}
                   alt={item.product.name}
                   className="w-16 h-16 rounded-md object-cover"
                 />

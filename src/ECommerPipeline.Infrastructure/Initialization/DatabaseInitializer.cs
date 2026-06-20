@@ -220,6 +220,7 @@ public class DatabaseInitializer
                               : rng.Next(100) < 70 ? PaymentStatus.Paid
                               : rng.Next(2) == 0 ? PaymentStatus.Pending : PaymentStatus.Failed;
 
+                var seedSubtotal = items.Sum(x => x.LineTotal);
                 orders.Add(new Order
                 {
                     OrderNumber   = $"ORD-SEED-{totalIndex:D7}",
@@ -229,7 +230,8 @@ public class DatabaseInitializer
                     PaymentMethod = method,
                     PaymentStatus = payStatus,
                     Items         = items,
-                    TotalAmount   = items.Sum(x => x.LineTotal)
+                    Subtotal      = seedSubtotal,
+                    TotalAmount   = seedSubtotal   // seed: no shipping/VAT
                 });
             }
 

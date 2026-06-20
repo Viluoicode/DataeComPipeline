@@ -30,12 +30,17 @@ public class ProductService : IProductService
                 q = q.Where(p => p.Category == category);
 
             var total = await q.CountAsync(ct);
-            var items = await q
+            var raw = await q
                 .OrderBy(p => p.Name)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
-                .Select(p => new ProductLookupDto(p.Id, p.Sku, p.Name, p.Category, p.Brand, p.Price, p.StockQuantity))
+                .Select(p => new { p.Id, p.Sku, p.Name, p.Category, p.Brand, p.Price, p.StockQuantity, p.ImageUrl })
                 .ToListAsync(ct);
+
+            // Build the serve URL in memory (avoids translating string interpolation in SQL).
+            var items = raw.Select(p => new ProductLookupDto(
+                p.Id, p.Sku, p.Name, p.Category, p.Brand, p.Price, p.StockQuantity,
+                p.ImageUrl != null ? $"/api/products/{p.Id}/image" : null)).ToList();
 
             return new PagedResult<ProductLookupDto>(items, page, pageSize, total);
         }
@@ -108,6 +113,19 @@ public class ProductService : IProductService
         await _db.SaveChangesAsync(ct);
     }
 
+    public async Task SetImageAsync(long id, string fileName, CancellationToken ct = default)
+    {
+        var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == id, ct)
+            ?? throw new KeyNotFoundException($"Product {id} not found.");
+        product.ImageUrl = fileName;
+        product.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public Task<string?> GetImageFileNameAsync(long id, CancellationToken ct = default) =>
+        _db.Products.AsNoTracking().Where(p => p.Id == id).Select(p => p.ImageUrl).FirstOrDefaultAsync(ct);
+
     private static ProductLookupDto ToDto(Product p) =>
-        new(p.Id, p.Sku, p.Name, p.Category, p.Brand, p.Price, p.StockQuantity);
+        new(p.Id, p.Sku, p.Name, p.Category, p.Brand, p.Price, p.StockQuantity,
+            p.ImageUrl != null ? $"/api/products/{p.Id}/image" : null);
 }
