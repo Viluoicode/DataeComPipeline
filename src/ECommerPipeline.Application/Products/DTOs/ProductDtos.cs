@@ -8,3 +8,20 @@ public record ProductLookupDto(
     string? Brand,
     decimal Price,
     int StockQuantity);
+
+// ---- Phase 8: admin catalog management ----
+public record CreateProductRequest(
+    string Sku,
+    string Name,
+    string Category,
+    string? Brand,
+    decimal Price,
+    int StockQuantity);
+
+/// Sku is immutable (it's the business key) — only mutable attributes here.
+public record UpdateProductRequest(
+    string Name,
+    string Category,
+    string? Brand,
+    decimal Price,
+    int StockQuantity);

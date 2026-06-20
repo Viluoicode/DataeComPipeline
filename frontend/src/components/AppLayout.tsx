@@ -8,6 +8,7 @@ import {
   ArrowUpTrayIcon,
   ArrowTopRightOnSquareIcon,
   SparklesIcon,
+  CubeIcon,
   Bars3Icon,
   XMarkIcon,
 } from '@heroicons/react/24/outline'
@@ -18,6 +19,7 @@ const nav = [
   { to: '/admin/ask',        label: 'Ask Data (AI)', icon: SparklesIcon,       end: false },
   { to: '/admin/orders',     label: 'Orders',        icon: ShoppingCartIcon,   end: false },
   { to: '/admin/orders/new', label: 'New Order',     icon: PlusCircleIcon,     end: false },
+  { to: '/admin/products',   label: 'Products',      icon: CubeIcon,           end: false },
   { to: '/admin/import',     label: 'Import Excel',  icon: ArrowUpTrayIcon,    end: false },
   { to: '/admin/stress',     label: 'Stress Test',   icon: BoltIcon,           end: false },
 ]
