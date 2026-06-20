@@ -1,6 +1,7 @@
 using ECommerPipeline.Application.Common.DTOs;
 using ECommerPipeline.Application.Products;
 using ECommerPipeline.Application.Products.DTOs;
+using ECommerPipeline.Domain.Entities;
 using ECommerPipeline.Infrastructure.Persistence.Oltp;
 using Microsoft.EntityFrameworkCore;
 
@@ -53,4 +54,60 @@ public class ProductService : IProductService
         }
         catch (OperationCanceledException) { throw; }
     }
+
+    // ---- Phase 8: admin catalog management ----
+
+    public async Task<ProductLookupDto> CreateAsync(CreateProductRequest r, CancellationToken ct = default)
+    {
+        var sku = r.Sku.Trim();
+        if (await _db.Products.AnyAsync(p => p.Sku == sku, ct))
+            throw new InvalidOperationException($"SKU '{sku}' already exists.");
+
+        var product = new Product
+        {
+            Sku = sku,
+            Name = r.Name.Trim(),
+            Category = r.Category.Trim(),
+            Brand = string.IsNullOrWhiteSpace(r.Brand) ? null : r.Brand.Trim(),
+            Price = r.Price,
+            StockQuantity = r.StockQuantity,
+        };
+        _db.Products.Add(product);
+        await _db.SaveChangesAsync(ct);
+
+        return ToDto(product);
+    }
+
+    public async Task<ProductLookupDto> UpdateAsync(long id, UpdateProductRequest r, CancellationToken ct = default)
+    {
+        var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == id, ct)
+            ?? throw new KeyNotFoundException($"Product {id} not found.");
+
+        product.Name = r.Name.Trim();
+        product.Category = r.Category.Trim();
+        product.Brand = string.IsNullOrWhiteSpace(r.Brand) ? null : r.Brand.Trim();
+        product.Price = r.Price;
+        product.StockQuantity = r.StockQuantity;
+        product.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        return ToDto(product);
+    }
+
+    public async Task DeleteAsync(long id, CancellationToken ct = default)
+    {
+        var product = await _db.Products.FirstOrDefaultAsync(p => p.Id == id, ct)
+            ?? throw new KeyNotFoundException($"Product {id} not found.");
+
+        // FK is Restrict — block delete if the product is referenced by any order.
+        if (await _db.OrderItems.AnyAsync(i => i.ProductId == id, ct))
+            throw new InvalidOperationException(
+                "Product has orders and cannot be deleted. Set stock to 0 to retire it instead.");
+
+        _db.Products.Remove(product);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private static ProductLookupDto ToDto(Product p) =>
+        new(p.Id, p.Sku, p.Name, p.Category, p.Brand, p.Price, p.StockQuantity);
 }

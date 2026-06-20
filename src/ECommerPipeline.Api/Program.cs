@@ -16,6 +16,7 @@ using ECommerPipeline.Application.Orders;
 using ECommerPipeline.Application.Orders.DTOs;
 using ECommerPipeline.Application.Payments;
 using ECommerPipeline.Application.Products;
+using ECommerPipeline.Application.Products.DTOs;
 using ECommerPipeline.Application.Reports;
 using ECommerPipeline.Domain.Enums;
 using ECommerPipeline.Infrastructure;
@@ -630,6 +631,31 @@ app.MapGet("/api/products", async (
 app.MapGet("/api/products/categories", async (IProductService svc, CancellationToken ct) =>
     Results.Ok(await svc.GetCategoriesAsync(ct)))
    .WithTags("Products");
+
+// ---- Admin catalog management (Staff/Admin) ----
+app.MapPost("/api/products", async (
+        CreateProductRequest req, IValidator<CreateProductRequest> validator,
+        IProductService svc, CancellationToken ct) =>
+{
+    var r = await validator.ValidateAsync(req, ct);
+    if (!r.IsValid) return Results.ValidationProblem(r.ToDictionary());
+    return Results.Ok(await svc.CreateAsync(req, ct));
+}).RequireAuthorization(p => p.RequireRole("Admin", "Staff")).WithTags("Products");
+
+app.MapPut("/api/products/{id:long}", async (
+        long id, UpdateProductRequest req, IValidator<UpdateProductRequest> validator,
+        IProductService svc, CancellationToken ct) =>
+{
+    var r = await validator.ValidateAsync(req, ct);
+    if (!r.IsValid) return Results.ValidationProblem(r.ToDictionary());
+    return Results.Ok(await svc.UpdateAsync(id, req, ct));
+}).RequireAuthorization(p => p.RequireRole("Admin", "Staff")).WithTags("Products");
+
+app.MapDelete("/api/products/{id:long}", async (long id, IProductService svc, CancellationToken ct) =>
+{
+    await svc.DeleteAsync(id, ct);
+    return Results.Ok(new { status = "deleted", id });
+}).RequireAuthorization(p => p.RequireRole("Admin", "Staff")).WithTags("Products");
 
 // ============================================================
 //  OLAP — analytical read path (served from Columnstore)

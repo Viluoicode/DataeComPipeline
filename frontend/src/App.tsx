@@ -15,6 +15,7 @@ import { ProductDetail } from './pages/public/ProductDetail'
 import { Checkout } from './pages/public/Checkout'
 import { PaymentReturn } from './pages/public/PaymentReturn'
 import { MyOrders } from './pages/public/MyOrders'
+import { OrderTracking } from './pages/public/OrderTracking'
 import { Login } from './pages/public/Login'
 import { Register } from './pages/public/Register'
 
@@ -23,6 +24,7 @@ import { Dashboard } from './pages/Dashboard'
 import { OrdersList } from './pages/OrdersList'
 import { CreateOrder } from './pages/CreateOrder'
 import { OrderDetail } from './pages/OrderDetail'
+import { ProductsAdmin } from './pages/ProductsAdmin'
 import { ImportPage } from './pages/ImportPage'
 import { StressTest } from './pages/StressTest'
 import { AskData } from './pages/AskData'
@@ -55,6 +57,7 @@ export default function App() {
               <Route element={<ProtectedRoute />}>
                 <Route path="/checkout"     element={<Checkout />} />
                 <Route path="/my-orders"    element={<MyOrders />} />
+                <Route path="/my-orders/:id" element={<OrderTracking />} />
               </Route>
             </Route>
 
@@ -65,6 +68,7 @@ export default function App() {
                 <Route path="orders"        element={<OrdersList />} />
                 <Route path="orders/new"    element={<CreateOrder />} />
                 <Route path="orders/:id"    element={<OrderDetail />} />
+                <Route path="products"      element={<ProductsAdmin />} />
                 <Route path="ask"           element={<AskData />} />
                 <Route path="import"        element={<ImportPage />} />
                 <Route path="stress"        element={<StressTest />} />
