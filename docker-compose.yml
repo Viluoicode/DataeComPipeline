@@ -53,6 +53,10 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: "Production"
       ASPNETCORE_URLS: "http://+:8080"
+      # The Docker SQL Server CAN create databases (unlike Azure SQL), so override
+      # appsettings.Production.json's AutoCreate=false — otherwise the OLAP database
+      # is never created and startup fails with "Cannot open database ..._Olap".
+      Database__AutoCreate: "true"
       ConnectionStrings__OltpConnection:      "Server=sql;Database=ECommerPipeline_Oltp;User Id=sa;Password=EcomDemo!2026Strong;TrustServerCertificate=True;Encrypt=False;"
       ConnectionStrings__OlapConnection:      "Server=sql;Database=ECommerPipeline_Olap;User Id=sa;Password=EcomDemo!2026Strong;TrustServerCertificate=True;Encrypt=False;"
       ConnectionStrings__HangfireConnection:  "Server=sql;Database=ECommerPipeline_Hangfire;User Id=sa;Password=EcomDemo!2026Strong;TrustServerCertificate=True;Encrypt=False;"
