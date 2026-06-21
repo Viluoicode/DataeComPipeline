@@ -50,11 +50,11 @@ Then:
 
 ## Provider
 
-Default `Analyst__Provider=Offline` (deterministic canned SQL, zero API keys — safety still fully enforced). For real NL→SQL set `Analyst__Provider=OpenAI` + `Analyst__OpenAI__ApiKey` (or point `Analyst__OpenAI__BaseUrl` at a local Ollama). See `ai-analyst/CLAUDE.md` §3.
+Default `Analyst__Provider=Offline` (deterministic canned SQL, zero API keys — safety still fully enforced). For real NL→SQL set `Analyst__Provider=OpenAI` + `Analyst__OpenAI__ApiKey` (or point `Analyst__OpenAI__BaseUrl` at a local Ollama). See `ai-analyst/README.md`.
 
 ## Safety model (do NOT weaken)
 
-Four layers of defense-in-depth (detail: `ai-analyst/.claude/docs/safety_validation.md`):
+Four layers of defense-in-depth:
 1. Prompt only tells the model the whitelisted gold tables/columns.
 2. **AST validator** (ScriptDom): single SELECT, whitelist, no INTO/OPENROWSET/cross-DB, injected TOP cap.
 3. **`analyst_ro` DB principal**: SELECT on gold only; writes/DDL denied — the real backstop.

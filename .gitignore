@@ -56,7 +56,6 @@ appsettings.Local.json
 # ====== SSMS scratch files ======
 SQLQuery*.sql
 
-# ====== Claude Code (keep only .md docs in the repo; all other Claude files stay local) ======
-**/.claude/**
-!**/.claude/**/
-!**/.claude/**/*.md
+# ====== Local AI/editor tooling — kept out of the public repo ======
+**/.claude/
+CLAUDE.md
