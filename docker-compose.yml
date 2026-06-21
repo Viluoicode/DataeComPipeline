@@ -188,6 +188,17 @@ services:
     environment:
       ASPNETCORE_URLS: "http://+:8080"
       ConnectionStrings__Analyst: "Server=sql,1433;Database=ECommerPipeline_Olap;User Id=analyst_ro;Password=Readonly#Analyst1;TrustServerCertificate=True;Encrypt=False"
+      # "Offline" = canned answers for the sample questions only (zero keys).
+      # For REAL free-form NL→SQL, switch to a live LLM (then `docker compose up -d --build analyst-api`):
+      #   ── OpenAI (cloud, ~free per query, needs a key) ──
+      #   Analyst__Provider: "OpenAI"
+      #   Analyst__OpenAI__ApiKey: "sk-..."
+      #   Analyst__OpenAI__Model: "gpt-4o-mini"
+      #   ── Ollama (local, 100% free; run `ollama serve` + `ollama pull qwen2.5-coder:7b` on the host) ──
+      #   Analyst__Provider: "OpenAI"
+      #   Analyst__OpenAI__BaseUrl: "http://host.docker.internal:11434/v1"
+      #   Analyst__OpenAI__ApiKey: "ollama"
+      #   Analyst__OpenAI__Model: "qwen2.5-coder:7b"
       Analyst__Provider: "Offline"
       Analyst__SchemaConfigPath: "config/schema.ecommerce.json"
     ports:

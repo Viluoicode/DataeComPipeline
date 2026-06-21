@@ -22,16 +22,40 @@ const SUGGESTIONS = [
   'Có bao nhiêu khách hàng đã không mua hàng trong hơn 60 ngày?',
 ]
 
+const HISTORY_KEY = 'ecom.ask.history'
+
+const INTRO: ChatMessage = {
+  role: 'assistant',
+  text: 'Xin chào! Hỏi tôi bất cứ điều gì về dữ liệu bán hàng (tiếng Việt hoặc English). Tôi chuyển câu hỏi thành SQL an toàn (chỉ-đọc) trên Gold layer và trả lời.',
+}
+
+function loadHistory(): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY)
+    const parsed = raw ? JSON.parse(raw) : null
+    if (Array.isArray(parsed) && parsed.length) return parsed as ChatMessage[]
+  } catch { /* ignore corrupt history */ }
+  return [INTRO]
+}
+
 export function AskData() {
-  const [messages, setMessages] = useState<ChatMessage[]>([{
-    role: 'assistant',
-    text: 'Xin chào! Hỏi tôi bất cứ điều gì về dữ liệu bán hàng (tiếng Việt hoặc English). Tôi chuyển câu hỏi thành SQL an toàn (chỉ-đọc) trên Gold layer và trả lời.',
-  }])
+  const [messages, setMessages] = useState<ChatMessage[]>(loadHistory)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
+
+  // Persist chat history so it survives refresh/navigation (last 50 messages).
+  useEffect(() => {
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(messages.slice(-50))) }
+    catch { /* storage full — skip */ }
+  }, [messages])
+
+  function clearHistory() {
+    localStorage.removeItem(HISTORY_KEY)
+    setMessages([INTRO])
+  }
 
   async function send(question: string) {
     const q = question.trim()
@@ -56,11 +80,19 @@ export function AskData() {
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto flex flex-col h-[calc(100dvh-3.5rem)] md:h-screen">
-      <div className="mb-4">
-        <Title className="!text-2xl flex items-center gap-2">
-          <SparklesIcon className="w-6 h-6 text-blue-400" /> Ask Data
-        </Title>
-        <Text>NL→SQL trên Gold layer · mọi truy vấn được validate (chỉ-đọc, whitelist) trước khi chạy</Text>
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <div>
+          <Title className="!text-2xl flex items-center gap-2">
+            <SparklesIcon className="w-6 h-6 text-blue-400" /> Ask Data
+          </Title>
+          <Text>NL→SQL trên Gold layer · mọi truy vấn được validate (chỉ-đọc, whitelist) trước khi chạy</Text>
+        </div>
+        {messages.length > 1 && (
+          <button onClick={clearHistory}
+            className="text-xs text-gray-400 hover:text-gray-200 border border-gray-700 rounded-md px-2 py-1 whitespace-nowrap">
+            Xoá lịch sử
+          </button>
+        )}
       </div>
 
       {/* Messages */}
